@@ -9,10 +9,19 @@ from vdx.utils import compute_checksum
 def run_package(args):
     base_dir = "components"
     vpk_filename = "vdx_deployment.vpk"
-    template_path = os.path.join("vdx_project", "templates", "vaultpackage.xml")
+    
+    # Calculate the template path relative to this file's location
+    # This allows the symlink to find the XML even when run from elsewhere
+    current_file_path = Path(__file__).resolve()
+    project_root = current_file_path.parent.parent.parent # Navigate up from vdx/commands/package.py to vdx_project/
+    template_path = project_root / "templates" / "vaultpackage.xml"
     
     if not os.path.exists(base_dir):
-        logging.error("No /components directory found.")
+        logging.error("No /components directory found in the current directory.")
+        sys.exit(1)
+        
+    if not template_path.exists():
+        logging.error(f"Package template not found at: {template_path}")
         sys.exit(1)
         
     logging.info(f"Packaging local components into {vpk_filename}...")

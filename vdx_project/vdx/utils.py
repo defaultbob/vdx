@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import fnmatch
+from pathlib import Path
 
 STATE_FILE = ".vdx_state.json"
 IGNORE_FILE = ".vdxignore"
@@ -12,6 +13,7 @@ def compute_checksum(content):
     return hashlib.md5(content.encode('utf-8')).hexdigest()
 
 def load_ignore_patterns():
+    # We look for .vdxignore in the current working directory where the user runs the command
     if os.path.exists(IGNORE_FILE):
         with open(IGNORE_FILE, 'r') as f:
             return [line.strip() for line in f if line.strip() and not line.startswith('#')]
@@ -34,14 +36,13 @@ def save_state(state):
         json.dump(state, f, indent=4)
 
 def load_dotenv(filepath=".env"):
+    # Check current directory for .env
     if os.path.exists(filepath):
         with open(filepath, 'r') as f:
             for line in f:
                 line = line.strip()
-                # Ignore empty lines and comments
                 if line and not line.startswith('#') and '=' in line:
                     key, val = line.split('=', 1)
                     val = val.strip().strip('\'"')
-                    # Only set if not already present in the environment
                     if key.strip() not in os.environ:
                         os.environ[key.strip()] = val
