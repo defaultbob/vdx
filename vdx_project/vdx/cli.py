@@ -4,8 +4,12 @@ from vdx.auth import login
 from vdx.commands.pull import run_pull
 from vdx.commands.push import run_push
 from vdx.commands.package import run_package
+from vdx.utils import load_dotenv
 
 def main():
+    # Load .env variables into os.environ before anything else runs
+    load_dotenv()
+
     parser = argparse.ArgumentParser(description="vdx - Veeva Vault Configuration Manager")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose/debug logging")
     

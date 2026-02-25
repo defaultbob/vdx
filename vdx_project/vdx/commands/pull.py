@@ -9,10 +9,12 @@ def run_pull(args):
     state = load_state()
     
     logging.info("Pulling component configurations from Vault...")
-    query = "SELECT component_name__sys, component_type__sys, mdl_definition__v FROM vault_component__v"
-    endpoint = f"/api/{API_VERSION}/query"
+    query = "SELECT component_name__v, component_type__v, mdl_definition__v FROM vault_component__v"
+    endpoint = f"/api/{API_VERSION}/query/components"
     
     response = make_vault_request("POST", endpoint, data={"q": query})
+    logging.info(f"Response: {response.text}")
+    
     if response.status_code != 200:
         logging.error(f"Error querying Vault: {response.text}")
         sys.exit(1)

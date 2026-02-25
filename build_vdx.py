@@ -50,6 +50,19 @@ def load_state():
 def save_state(state):
     with open(STATE_FILE, 'w') as f:
         json.dump(state, f, indent=4)
+
+def load_dotenv(filepath=".env"):
+    if os.path.exists(filepath):
+        with open(filepath, 'r') as f:
+            for line in f:
+                line = line.strip()
+                # Ignore empty lines and comments
+                if line and not line.startswith('#') and '=' in line:
+                    key, val = line.split('=', 1)
+                    val = val.strip().strip('\'"')
+                    # Only set if not already present in the environment
+                    if key.strip() not in os.environ:
+                        os.environ[key.strip()] = val
 """,
 
     "vdx_project/vdx/auth.py": r"""import os
@@ -398,8 +411,12 @@ from vdx.auth import login
 from vdx.commands.pull import run_pull
 from vdx.commands.push import run_push
 from vdx.commands.package import run_package
+from vdx.utils import load_dotenv
 
 def main():
+    # Load .env variables into os.environ before anything else runs
+    load_dotenv()
+
     parser = argparse.ArgumentParser(description="vdx - Veeva Vault Configuration Manager")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose/debug logging")
     
