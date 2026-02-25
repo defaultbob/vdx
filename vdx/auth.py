@@ -3,6 +3,7 @@ import json
 import requests
 import sys
 from getpass import getpass
+from dotenv import load_dotenv # 1. Import load_dotenv
 
 CONFIG_FILE = ".vdx_config"
 API_VERSION = "v25.3"
@@ -22,6 +23,9 @@ def print_ascii_art():
 def login(dns=None, username=None, password=None, silent=False):
     if not silent:
         print_ascii_art()
+        
+    # 2. Automatically load variables from the .env file
+    load_dotenv() 
 
     config = {}
     if os.path.exists(CONFIG_FILE):
