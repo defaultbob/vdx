@@ -1,6 +1,7 @@
 import os
 import sys
 import zipfile
+import logging
 from pathlib import Path
 from vdx.api import make_vault_request, API_VERSION
 from vdx.utils import compute_checksum
@@ -11,10 +12,10 @@ def run_package(args):
     template_path = os.path.join("templates", "vaultpackage.xml")
     
     if not os.path.exists(base_dir):
-        print("No /components directory found.")
+        logging.error("No /components directory found.")
         sys.exit(1)
         
-    print(f"Packaging local components into {vpk_filename}...")
+    logging.info(f"Packaging local components into {vpk_filename}...")
     
     with zipfile.ZipFile(vpk_filename, 'w', zipfile.ZIP_DEFLATED) as vpk:
         with open(template_path, 'r', encoding='utf-8') as tf:
@@ -48,8 +49,8 @@ def run_package(args):
                     
                     step_num += 10
                     
-    print(f"Successfully created custom package {vpk_filename}.")
-    print("Importing VPK to Vault...")
+    logging.info(f"Successfully created custom package {vpk_filename}.")
+    logging.info("Importing VPK to Vault...")
     import_endpoint = f"/api/{API_VERSION}/vpackages"
     
     with open(vpk_filename, 'rb') as f:
@@ -57,10 +58,12 @@ def run_package(args):
         
     if response.status_code == 200 and response.json().get("responseStatus") == "SUCCESS":
         package_id = response.json().get("data", {}).get("package_id__v")
-        print(f"Package successfully imported. Vault Package ID: {package_id}")
+        logging.info(f"Package successfully imported. Vault Package ID: {package_id}")
         
         val_res = make_vault_request("POST", f"/api/{API_VERSION}/vpackages/{package_id}/actions/validate")
         if val_res.status_code == 200:
-            print(f"Validation Job initiated successfully.")
+            logging.info(f"Validation Job initiated successfully.")
+        else:
+            logging.error(f"Failed to initiate validation job. Response: {val_res.text}")
     else:
-        print(f"Error importing package: {response.text}")
+        logging.error(f"Error importing package: {response.text}")

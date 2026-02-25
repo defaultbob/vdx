@@ -2,8 +2,8 @@ import os
 import json
 import requests
 import sys
+import logging
 from getpass import getpass
-from dotenv import load_dotenv # 1. Import load_dotenv
 
 CONFIG_FILE = ".vdx_config"
 API_VERSION = "v25.3"
@@ -18,14 +18,11 @@ def print_ascii_art():
     \_/    |____/   /_/ \_\ 
     Vault Developer eXperience
     '''
-    print(art)
+    print(art) # Kept standard print so ascii isn't prefixed with logger formats
 
 def login(dns=None, username=None, password=None, silent=False):
     if not silent:
         print_ascii_art()
-        
-    # 2. Automatically load variables from the .env file
-    load_dotenv() 
 
     config = {}
     if os.path.exists(CONFIG_FILE):
@@ -37,7 +34,7 @@ def login(dns=None, username=None, password=None, silent=False):
     password = password or os.getenv("VAULT_PASSWORD") or config.get("password")
 
     if not dns or not username:
-        print("Error: VAULT_DNS and VAULT_USERNAME are required.")
+        logging.error("Error: VAULT_DNS and VAULT_USERNAME are required.")
         sys.exit(1)
         
     if not password:
@@ -46,7 +43,7 @@ def login(dns=None, username=None, password=None, silent=False):
     url = f"https://{dns}/api/{API_VERSION}/auth"
     payload = {"username": username, "password": password}
     
-    if not silent: print(f"Authenticating to {dns}...")
+    if not silent: logging.info(f"Authenticating to {dns}...")
     
     response = requests.post(url, data=payload, headers={"X-VaultAPI-ClientID": CLIENT_ID})
     
@@ -61,15 +58,15 @@ def login(dns=None, username=None, password=None, silent=False):
         with open(CONFIG_FILE, 'w') as f:
             json.dump(config, f)
             
-        if not silent: print("Login successful! Session and credentials saved locally.")
+        if not silent: logging.info("Login successful! Session and credentials saved locally.")
         return config
     else:
-        print(f"Login failed: {response.text}")
+        logging.error(f"Login failed: {response.text}")
         sys.exit(1)
 
 def get_config():
     if not os.path.exists(CONFIG_FILE):
-        print("Error: Not logged in. Run 'vdx login' first.")
+        logging.error("Error: Not logged in. Run 'vdx login' first.")
         sys.exit(1)
     with open(CONFIG_FILE, 'r') as f:
         return json.load(f)

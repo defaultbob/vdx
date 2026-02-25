@@ -1,5 +1,6 @@
 import os
 import sys
+import logging
 from vdx.api import make_vault_request, API_VERSION
 from vdx.utils import compute_checksum, load_state, save_state, load_ignore_patterns, is_ignored
 
@@ -9,10 +10,10 @@ def run_push(args):
     base_dir = "components"
     
     if not os.path.exists(base_dir):
-        print("No /components directory found.")
+        logging.error("No /components directory found.")
         sys.exit(1)
         
-    print("Comparing local components to Vault state...")
+    logging.info("Comparing local components to Vault state...")
     modified_files = []
     dropped_components = []
     
@@ -35,30 +36,34 @@ def run_push(args):
             del state[tracked_file]
             
     if not modified_files and not dropped_components:
-        print("Everything up-to-date.")
+        logging.info("Everything up-to-date. No changes to push.")
         sys.exit(0)
         
+    logging.info(f"Identified {len(modified_files)} modified files and {len(dropped_components)} dropped components.")
+        
     if getattr(args, 'dry_run', False):
-        print("\n--- DRY RUN ---")
-        for f, _, _ in modified_files: print(f"Would Push/Update: {f}")
-        for ctype, cname in dropped_components: print(f"Would DROP: {ctype} {cname}")
+        logging.info("\n--- DRY RUN ---")
+        for f, _, _ in modified_files: logging.info(f"Would Push/Update: {f}")
+        for ctype, cname in dropped_components: logging.info(f"Would DROP: {ctype} {cname}")
         sys.exit(0)
         
     mdl_endpoint = f"/api/{API_VERSION}/mdl/execute"
     for file_path, local_mdl, local_checksum in modified_files:
+        logging.debug(f"Pushing payload for {file_path} to Vault...")
         response = make_vault_request("POST", mdl_endpoint, data=local_mdl.encode('utf-8'))
         if response.status_code == 200 and response.json().get("responseStatus") == "SUCCESS":
-            print(f"Pushed: {file_path}")
+            logging.info(f"Pushed: {file_path}")
             state[file_path] = local_checksum
         else:
-            print(f"Failed to push {file_path}: {response.text}")
+            logging.error(f"Failed to push {file_path}: {response.text}")
             
     for ctype, cname in dropped_components:
+        logging.debug(f"Dropping {ctype} {cname} from Vault...")
         response = make_vault_request("POST", mdl_endpoint, data=f"DROP {ctype} {cname};".encode('utf-8'))
         if response.status_code == 200 and response.json().get("responseStatus") == "SUCCESS":
-            print(f"Dropped: {ctype} {cname}")
+            logging.info(f"Dropped: {ctype} {cname}")
         else:
-            print(f"Failed to drop {ctype} {cname}: {response.text}")
+            logging.error(f"Failed to drop {ctype} {cname}: {response.text}")
             
     save_state(state)
-    print("Push complete.")
+    logging.info("Push complete.")
