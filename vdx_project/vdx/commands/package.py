@@ -16,7 +16,7 @@ def poll_job_status(job_id):
     logging.info(f"Monitoring import job {job_id}...")
     
     attempts = 0
-    max_attempts = 20 
+    max_attempts = 60  # 12 minutes max (12s intervals)
     
     while attempts < max_attempts:
         response = make_vault_request("GET", endpoint)
