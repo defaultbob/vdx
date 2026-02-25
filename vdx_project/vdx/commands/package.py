@@ -7,13 +7,13 @@ from pathlib import Path
 from vdx.api import make_vault_request, API_VERSION
 from vdx.utils import compute_checksum, load_state
 
-def poll_job_status(job_id):
+def poll_job_status(job_id, job_type="job"):
     """
     Polls the Vault Job API until the job completes.
     Returns the job status data or None if it fails.
     """
     endpoint = f"/api/{API_VERSION}/services/jobs/{job_id}"
-    logging.info(f"Monitoring import job {job_id}...")
+    logging.info(f"Monitoring {job_type} {job_id}...")
     
     attempts = 0
     max_attempts = 60  # 12 minutes max (12s intervals)
@@ -25,20 +25,20 @@ def poll_job_status(job_id):
             status = job_data.get("status")
             
             if status == "SUCCESS":
-                logging.info("Import job completed successfully.")
+                logging.info(f"{job_type.capitalize()} completed successfully.")
                 return job_data
             elif status in ["FAILURE", "CANCELLED"]:
-                logging.error(f"Job finished with status: {status}")
+                logging.error(f"{job_type.capitalize()} finished with status: {status}")
                 return None
             
-            logging.debug(f"Job status: {status}. Waiting 12 seconds...")
+            logging.debug(f"{job_type.capitalize()} status: {status}. Waiting 12 seconds...")
         else:
-            logging.warning(f"Failed to check job status (HTTP {response.status_code}). Retrying...")
+            logging.warning(f"Failed to check {job_type} status (HTTP {response.status_code}). Retrying...")
             
         time.sleep(12)
         attempts += 1
         
-    logging.error("Timed out waiting for import job to complete.")
+    logging.error(f"Timed out waiting for {job_type} to complete.")
     return None
 
 def run_package(args):
@@ -103,10 +103,10 @@ def run_package(args):
                     
     logging.info(f"Successfully created custom package {vpk_filename}.")
     logging.info("Importing VPK to Vault...")
-    import_endpoint = f"/api/{API_VERSION}/services/package"
+    import_endpoint = f"/api/{API_VERSION}/vpackages"
     
     with open(vpk_filename, 'rb') as f:
-        response = make_vault_request("PUT", import_endpoint, files={'file': (vpk_filename, f, 'application/zip')})
+        response = make_vault_request("POST", import_endpoint, files={'file': (vpk_filename, f, 'application/zip')})
         
     if response.status_code == 200 and response.json().get("responseStatus") == "SUCCESS":
         resp_json = response.json()
@@ -116,7 +116,7 @@ def run_package(args):
             # Fallback for older API versions or immediate returns
             package_id = resp_json.get("data", {}).get("package_id__v")
         else:
-            job_info = poll_job_status(job_id)
+            job_info = poll_job_status(job_id, "import job")
             if not job_info:
                 logging.error("Import failed during job execution.")
                 sys.exit(1)
@@ -141,9 +141,19 @@ def run_package(args):
 
         logging.info(f"Package successfully imported. Vault Package ID: {package_id}")
         
-        val_res = make_vault_request("POST", f"/api/{API_VERSION}/services/vobject/vault_package__v/{package_id}/actions/validate/")
+        # Trigger the validation job
+        val_res = make_vault_request("POST", f"/api/{API_VERSION}/vpackages/{package_id}/actions/validate")
         if val_res.status_code == 200 and val_res.json().get("responseStatus") == "SUCCESS":
-            logging.info(f"Validation Job initiated successfully.")
+            val_job_id = val_res.json().get("job_id")
+            
+            if val_job_id:
+                val_job_info = poll_job_status(val_job_id, "validation job")
+                if val_job_info and val_job_info.get("status") == "SUCCESS":
+                    logging.info(f"Package validation completed successfully.")
+                else:
+                    logging.error("Package validation job failed or was cancelled. Check Vault UI for details.")
+            else:
+                logging.info(f"Validation Job initiated successfully, but no Job ID was returned to monitor.")
         else:
             logging.error(f"Failed to initiate validation job. Response: {val_res.text}")
     else:
