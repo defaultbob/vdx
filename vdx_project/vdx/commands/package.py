@@ -60,16 +60,16 @@ def run_package(args):
                     
     logging.info(f"Successfully created custom package {vpk_filename}.")
     logging.info("Importing VPK to Vault...")
-    import_endpoint = f"/api/{API_VERSION}/vpackages"
+    import_endpoint = f"/api/{API_VERSION}/services/package"
     
     with open(vpk_filename, 'rb') as f:
-        response = make_vault_request("POST", import_endpoint, files={'file': (vpk_filename, f, 'application/zip')})
+        response = make_vault_request("PUT", import_endpoint, files={'file': (vpk_filename, f, 'application/zip')})
         
     if response.status_code == 200 and response.json().get("responseStatus") == "SUCCESS":
         package_id = response.json().get("data", {}).get("package_id__v")
         logging.info(f"Package successfully imported. Vault Package ID: {package_id}")
         
-        val_res = make_vault_request("POST", f"/api/{API_VERSION}/vpackages/{package_id}/actions/validate")
+        val_res = make_vault_request("POST", f"/api/{API_VERSION}/services/vobject/vault_package__v/{package_id}/actions/validate/")
         if val_res.status_code == 200 and val_res.json().get("responseStatus") == "SUCCESS":
             logging.info(f"Validation Job initiated successfully.")
         else:
