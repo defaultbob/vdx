@@ -3,3 +3,4 @@ __pycache__
 *.pyc
 .vdx_config
 .vdx_state.json
+/components/

@@ -13,9 +13,7 @@ def run_pull(args):
     endpoint = f"/api/{API_VERSION}/query/components"
     
     response = make_vault_request("POST", endpoint, data={"q": query})
-    logging.info(f"Response: {response.text}")
-    
-    if response.status_code != 200:
+    if response.status_code != 200 or response.json().get("responseStatus") != "SUCCESS":
         logging.error(f"Error querying Vault: {response.text}")
         sys.exit(1)
         

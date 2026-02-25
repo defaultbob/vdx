@@ -167,15 +167,22 @@ def make_vault_request(method, endpoint, **kwargs):
     response = requests.request(method, url, headers=headers, **kwargs)
     logging.debug(f"[API] Response Status: {response.status_code}")
     
-    if response.status_code == 401 or (response.status_code == 400 and "INVALID_SESSION_ID" in response.text):
+    # Vault sometimes returns HTTP 200 with FAILURE and INVALID_SESSION_ID in the body
+    if response.status_code == 401 or "INVALID_SESSION_ID" in response.text:
         logging.info("Session expired. Automatically generating new session ID...")
         config = login(silent=True)
         headers["Authorization"] = config["session_id"]
         response = requests.request(method, url, headers=headers, **kwargs)
         logging.debug(f"[API] Retry Response Status: {response.status_code}")
         
-    # Standardize error reporting at the API level
-    if response.status_code >= 400:
+    # Standardize error reporting at the API level (enforce responseStatus checking)
+    try:
+        resp_json = response.json()
+        response_status = resp_json.get("responseStatus")
+    except ValueError:
+        response_status = None
+
+    if response.status_code >= 400 or response_status == "FAILURE":
         logging.error(f"[API ERROR] HTTP {response.status_code} on {method} {url}")
         logging.error(f"[API ERROR] Response Body: {response.text}")
         
@@ -199,7 +206,7 @@ def run_pull(args):
     endpoint = f"/api/{API_VERSION}/query"
     
     response = make_vault_request("POST", endpoint, data={"q": query})
-    if response.status_code != 200:
+    if response.status_code != 200 or response.json().get("responseStatus") != "SUCCESS":
         logging.error(f"Error querying Vault: {response.text}")
         sys.exit(1)
         
@@ -397,7 +404,7 @@ def run_package(args):
         logging.info(f"Package successfully imported. Vault Package ID: {package_id}")
         
         val_res = make_vault_request("POST", f"/api/{API_VERSION}/vpackages/{package_id}/actions/validate")
-        if val_res.status_code == 200:
+        if val_res.status_code == 200 and val_res.json().get("responseStatus") == "SUCCESS":
             logging.info(f"Validation Job initiated successfully.")
         else:
             logging.error(f"Failed to initiate validation job. Response: {val_res.text}")

@@ -61,7 +61,7 @@ def run_package(args):
         logging.info(f"Package successfully imported. Vault Package ID: {package_id}")
         
         val_res = make_vault_request("POST", f"/api/{API_VERSION}/vpackages/{package_id}/actions/validate")
-        if val_res.status_code == 200:
+        if val_res.status_code == 200 and val_res.json().get("responseStatus") == "SUCCESS":
             logging.info(f"Validation Job initiated successfully.")
         else:
             logging.error(f"Failed to initiate validation job. Response: {val_res.text}")

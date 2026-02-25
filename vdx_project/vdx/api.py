@@ -26,15 +26,22 @@ def make_vault_request(method, endpoint, **kwargs):
     response = requests.request(method, url, headers=headers, **kwargs)
     logging.debug(f"[API] Response Status: {response.status_code}")
     
-    if response.status_code == 401 or (response.status_code == 400 and "INVALID_SESSION_ID" in response.text):
+    # Vault sometimes returns HTTP 200 with FAILURE and INVALID_SESSION_ID in the body
+    if response.status_code == 401 or "INVALID_SESSION_ID" in response.text:
         logging.info("Session expired. Automatically generating new session ID...")
         config = login(silent=True)
         headers["Authorization"] = config["session_id"]
         response = requests.request(method, url, headers=headers, **kwargs)
         logging.debug(f"[API] Retry Response Status: {response.status_code}")
         
-    # Standardize error reporting at the API level
-    if response.status_code >= 400:
+    # Standardize error reporting at the API level (enforce responseStatus checking)
+    try:
+        resp_json = response.json()
+        response_status = resp_json.get("responseStatus")
+    except ValueError:
+        response_status = None
+
+    if response.status_code >= 400 or response_status == "FAILURE":
         logging.error(f"[API ERROR] HTTP {response.status_code} on {method} {url}")
         logging.error(f"[API ERROR] Response Body: {response.text}")
         
