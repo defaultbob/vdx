@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<vaultPackage xmlns="https://veevavault.com/">
+    <name>{package_name}</name>
+    <source>
+        <vaultId>LOCAL</vaultId>
+        <author>{author}</author>
+    </source>
+    <package_type>migration__v</package_type>
+    <summary>{summary}</summary>
+    <description>{description}</description>
+</vaultPackage>
