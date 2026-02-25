@@ -4,16 +4,53 @@ import logging
 from vdx.api import make_vault_request, API_VERSION
 from vdx.utils import compute_checksum, load_state, save_state, load_ignore_patterns, is_ignored
 
+def get_metadata_component_types():
+    """
+    Queries the Vault metadata API to find component types belonging to the 'metadata' class.
+    """
+    logging.info("Fetching component metadata to filter for 'metadata' class types...")
+    endpoint = f"/api/{API_VERSION}/metadata/components"
+    response = make_vault_request("GET", endpoint)
+    
+    if response.status_code != 200:
+        logging.error("Failed to fetch component metadata.")
+        return []
+        
+    data = response.json()
+    if data.get("responseStatus") != "SUCCESS":
+        logging.error(f"Metadata API Error: {data.get('errors')}")
+        return []
+        
+    # Filter for components where class == "metadata"
+    metadata_types = [
+        comp["name"] for comp in data.get("data", []) 
+        if comp.get("class") == "metadata"
+    ]
+    
+    logging.debug(f"Identified {len(metadata_types)} metadata-class component types.")
+    return metadata_types
+
 def run_pull(args):
     """
     Fetches all component MDL definitions from Vault and synchronizes the local 
-    /components directory.
+    /components directory using the specialized /query/components endpoint.
     """
     ignore_patterns = load_ignore_patterns()
     state = load_state()
     
+    # Get the list of component types that are of class 'metadata'
+    metadata_types = get_metadata_component_types()
+    if not metadata_types:
+        logging.error("No component types of class 'metadata' found. Aborting pull.")
+        sys.exit(1)
+
     logging.info("Pulling component configurations from Vault...")
-    query = "SELECT component_name__v, component_type__v, mdl_definition__v FROM vault_component__v"
+    
+    # Use the requested query structure with __v fields
+    types_list = ", ".join([f"'{t}'" for t in metadata_types])
+    query = f"SELECT component_name__v, component_type__v, mdl_definition__v FROM vault_component__v WHERE component_type__v CONTAINS ({types_list})"
+    
+    # Use the specialized endpoint as requested
     endpoint = f"/api/{API_VERSION}/query/components"
     
     response = make_vault_request("POST", endpoint, data={"q": query})
@@ -52,7 +89,7 @@ def run_pull(args):
     deleted_count = 0
     
     for record in records:
-        # Extract keys matching the SELECT clause exactly
+        # Extract keys matching the requested __v field names
         comp_type = record.get("component_type__v")
         comp_name = record.get("component_name__v")
         mdl_def = record.get("mdl_definition__v", "")

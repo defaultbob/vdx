@@ -9,7 +9,7 @@ from vdx.utils import compute_checksum
 def run_package(args):
     base_dir = "components"
     vpk_filename = "vdx_deployment.vpk"
-    template_path = os.path.join("templates", "vaultpackage.xml")
+    template_path = os.path.join("vdx_project", "templates", "vaultpackage.xml")
     
     if not os.path.exists(base_dir):
         logging.error("No /components directory found.")

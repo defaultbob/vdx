@@ -47,7 +47,7 @@ def run_push(args):
         for ctype, cname in dropped_components: logging.info(f"Would DROP: {ctype} {cname}")
         sys.exit(0)
         
-    mdl_endpoint = f"/api/{API_VERSION}/mdl/execute"
+    mdl_endpoint = f"/api/mdl/execute"
     for file_path, local_mdl, local_checksum in modified_files:
         logging.debug(f"Pushing payload for {file_path} to Vault...")
         response = make_vault_request("POST", mdl_endpoint, data=local_mdl.encode('utf-8'))
