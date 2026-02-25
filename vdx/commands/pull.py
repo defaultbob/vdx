@@ -9,7 +9,7 @@ def run_pull(args):
     
     print("Pulling component configurations from Vault...")
     query = "SELECT component_name__sys, component_type__sys, mdl_definition__v FROM vault_component__v"
-    endpoint = f"/api/{API_VERSION}/query"
+    endpoint = f"/api/{API_VERSION}/query/components"
     
     response = make_vault_request("POST", endpoint, data={"q": query})
     if response.status_code != 200:
