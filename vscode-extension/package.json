@@ -1,0 +1,58 @@
+{
+    "name": "vdx-vscode",
+    "displayName": "Vault Developer eXperience",
+    "description": "VS Code integration for the vdx CLI tool",
+    "version": "0.1.0",
+    "engines": {
+        "vscode": "^1.80.0"
+    },
+    "categories": [
+        "Other"
+    ],
+    "activationEvents": [],
+    "main": "./out/extension.js",
+    "contributes": {
+        "commands": [
+            {
+                "command": "vdx.login",
+                "title": "VDX: Login",
+                "category": "Vault"
+            },
+            {
+                "command": "vdx.pull",
+                "title": "VDX: Pull Components",
+                "category": "Vault"
+            },
+            {
+                "command": "vdx.push",
+                "title": "VDX: Push Components",
+                "category": "Vault"
+            },
+            {
+                "command": "vdx.pushDryRun",
+                "title": "VDX: Push (Dry Run)",
+                "category": "Vault"
+            },
+            {
+                "command": "vdx.package",
+                "title": "VDX: Create & Validate Package",
+                "category": "Vault"
+            }
+        ]
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./",
+        "pretest": "npm run compile && npm run lint",
+        "lint": "eslint src --ext ts"
+    },
+    "devDependencies": {
+        "@types/vscode": "^1.80.0",
+        "@types/node": "18.x",
+        "@typescript-eslint/eslint-plugin": "^6.4.0",
+        "@typescript-eslint/parser": "^6.4.0",
+        "eslint": "^8.47.0",
+        "typescript": "^5.1.6"
+    }
+}

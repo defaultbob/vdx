@@ -5,4 +5,10 @@ __pycache__
 .vdx_state.json
 /components/
 .DS_Store
-build_vdx.py
+build_*.py
+vscode-extension/node_modules/
+build/
+vdx_project/vdx.egg-info/
+package-lock.json
+vscode-extension/out/
+*.vsix
