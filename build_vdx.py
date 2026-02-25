@@ -56,6 +56,7 @@ def save_state(state):
 import json
 import requests
 import sys
+import logging
 from getpass import getpass
 
 CONFIG_FILE = ".vdx_config"
@@ -71,7 +72,7 @@ def print_ascii_art():
     \_/    |____/   /_/ \_\ 
     Vault Developer eXperience
     '''
-    print(art)
+    print(art) # Kept standard print so ascii isn't prefixed with logger formats
 
 def login(dns=None, username=None, password=None, silent=False):
     if not silent:
@@ -87,7 +88,7 @@ def login(dns=None, username=None, password=None, silent=False):
     password = password or os.getenv("VAULT_PASSWORD") or config.get("password")
 
     if not dns or not username:
-        print("Error: VAULT_DNS and VAULT_USERNAME are required.")
+        logging.error("Error: VAULT_DNS and VAULT_USERNAME are required.")
         sys.exit(1)
         
     if not password:
@@ -96,7 +97,7 @@ def login(dns=None, username=None, password=None, silent=False):
     url = f"https://{dns}/api/{API_VERSION}/auth"
     payload = {"username": username, "password": password}
     
-    if not silent: print(f"Authenticating to {dns}...")
+    if not silent: logging.info(f"Authenticating to {dns}...")
     
     response = requests.post(url, data=payload, headers={"X-VaultAPI-ClientID": CLIENT_ID})
     
@@ -111,38 +112,59 @@ def login(dns=None, username=None, password=None, silent=False):
         with open(CONFIG_FILE, 'w') as f:
             json.dump(config, f)
             
-        if not silent: print("Login successful! Session and credentials saved locally.")
+        if not silent: logging.info("Login successful! Session and credentials saved locally.")
         return config
     else:
-        print(f"Login failed: {response.text}")
+        logging.error(f"Login failed: {response.text}")
         sys.exit(1)
 
 def get_config():
     if not os.path.exists(CONFIG_FILE):
-        print("Error: Not logged in. Run 'vdx login' first.")
+        logging.error("Error: Not logged in. Run 'vdx login' first.")
         sys.exit(1)
     with open(CONFIG_FILE, 'r') as f:
         return json.load(f)
 """,
 
     "vdx_project/vdx/api.py": r"""import requests
+import logging
 from vdx.auth import get_config, login, API_VERSION, CLIENT_ID
 
 def make_vault_request(method, endpoint, **kwargs):
     config = get_config()
-    url = f"https://{config['vault_dns']}{endpoint}"
+    
+    # Check if a full URL was passed (like next_page URLs)
+    if endpoint.startswith("http"):
+        url = endpoint
+    else:
+        url = f"https://{config['vault_dns']}{endpoint}"
     
     headers = kwargs.pop('headers', {})
     headers["Authorization"] = config.get("session_id", "")
     headers["X-VaultAPI-ClientID"] = CLIENT_ID
     
+    logging.debug(f"[API] Request: {method} {url}")
+    if 'data' in kwargs and method != 'GET':
+        data_str = str(kwargs['data'])
+        # Truncate large payloads for readability in debug
+        if len(data_str) > 200:
+            data_str = data_str[:200] + " ... [TRUNCATED]"
+        logging.debug(f"[API] Payload Preview: {data_str}")
+        
     response = requests.request(method, url, headers=headers, **kwargs)
+    logging.debug(f"[API] Response Status: {response.status_code}")
     
     if response.status_code == 401 or (response.status_code == 400 and "INVALID_SESSION_ID" in response.text):
-        print("Session expired. Automatically generating new session ID...")
+        logging.info("Session expired. Automatically generating new session ID...")
         config = login(silent=True)
         headers["Authorization"] = config["session_id"]
         response = requests.request(method, url, headers=headers, **kwargs)
+        logging.debug(f"[API] Retry Response Status: {response.status_code}")
+        
+    # Standardize error reporting at the API level
+    if response.status_code >= 400:
+        logging.error(f"[API ERROR] HTTP {response.status_code} on {method} {url}")
+        logging.error(f"[API ERROR] Response Body: {response.text}")
         
     return response
 """,
@@ -151,6 +173,7 @@ def make_vault_request(method, endpoint, **kwargs):
 
     "vdx_project/vdx/commands/pull.py": r"""import os
 import sys
+import logging
 from vdx.api import make_vault_request, API_VERSION
 from vdx.utils import compute_checksum, load_state, save_state, load_ignore_patterns, is_ignored
 
@@ -158,24 +181,33 @@ def run_pull(args):
     ignore_patterns = load_ignore_patterns()
     state = load_state()
     
-    print("Pulling component configurations from Vault...")
+    logging.info("Pulling component configurations from Vault...")
     query = "SELECT component_name__sys, component_type__sys, mdl_definition__v FROM vault_component__v"
     endpoint = f"/api/{API_VERSION}/query"
     
     response = make_vault_request("POST", endpoint, data={"q": query})
     if response.status_code != 200:
-        print(f"Error querying Vault: {response.text}")
+        logging.error(f"Error querying Vault: {response.text}")
         sys.exit(1)
         
     data = response.json()
     records = data.get("data", [])
+    logging.info(f"Fetched {len(records)} records from initial query.")
     
+    # Handle pagination iteratively with logging
+    page_count = 1
     while data.get("responseDetails", {}).get("next_page"):
         next_url = data["responseDetails"]["next_page"]
+        logging.info(f"Traversing next page ({page_count})...")
         response = make_vault_request("GET", next_url)
         data = response.json()
-        records.extend(data.get("data", []))
+        new_records = data.get("data", [])
+        records.extend(new_records)
+        logging.debug(f"Fetched {len(new_records)} records from page {page_count}.")
+        page_count += 1
         
+    logging.info(f"Total records fetched from Vault: {len(records)}")
+    
     base_dir = "components"
     os.makedirs(base_dir, exist_ok=True)
     
@@ -191,6 +223,7 @@ def run_pull(args):
         file_path = os.path.join(type_dir, f"{comp_name}.mdl")
         
         if is_ignored(file_path, ignore_patterns):
+            logging.debug(f"Ignored tracking file based on '.vdxignore': {file_path}")
             continue
             
         vault_components[file_path] = True
@@ -203,22 +236,23 @@ def run_pull(args):
                 f.write(mdl_def if mdl_def else "")
             state[file_path] = remote_checksum
             updated_count += 1
-            print(f"Updated: {file_path}")
+            logging.info(f"Updated: {file_path}")
 
     for tracked_file in list(state.keys()):
         if tracked_file not in vault_components:
             if os.path.exists(tracked_file):
                 os.remove(tracked_file)
-                print(f"Deleted locally: {tracked_file}")
+                logging.info(f"Deleted locally (removed from Vault): {tracked_file}")
                 deleted_count += 1
             del state[tracked_file]
             
     save_state(state)
-    print(f"Pull complete. {updated_count} files updated. {deleted_count} files deleted.")
+    logging.info(f"Pull complete. {updated_count} files updated. {deleted_count} files deleted.")
 """,
 
     "vdx_project/vdx/commands/push.py": r"""import os
 import sys
+import logging
 from vdx.api import make_vault_request, API_VERSION
 from vdx.utils import compute_checksum, load_state, save_state, load_ignore_patterns, is_ignored
 
@@ -228,10 +262,10 @@ def run_push(args):
     base_dir = "components"
     
     if not os.path.exists(base_dir):
-        print("No /components directory found.")
+        logging.error("No /components directory found.")
         sys.exit(1)
         
-    print("Comparing local components to Vault state...")
+    logging.info("Comparing local components to Vault state...")
     modified_files = []
     dropped_components = []
     
@@ -254,38 +288,43 @@ def run_push(args):
             del state[tracked_file]
             
     if not modified_files and not dropped_components:
-        print("Everything up-to-date.")
+        logging.info("Everything up-to-date. No changes to push.")
         sys.exit(0)
         
+    logging.info(f"Identified {len(modified_files)} modified files and {len(dropped_components)} dropped components.")
+        
     if getattr(args, 'dry_run', False):
-        print("\n--- DRY RUN ---")
-        for f, _, _ in modified_files: print(f"Would Push/Update: {f}")
-        for ctype, cname in dropped_components: print(f"Would DROP: {ctype} {cname}")
+        logging.info("\n--- DRY RUN ---")
+        for f, _, _ in modified_files: logging.info(f"Would Push/Update: {f}")
+        for ctype, cname in dropped_components: logging.info(f"Would DROP: {ctype} {cname}")
         sys.exit(0)
         
     mdl_endpoint = f"/api/{API_VERSION}/mdl/execute"
     for file_path, local_mdl, local_checksum in modified_files:
+        logging.debug(f"Pushing payload for {file_path} to Vault...")
         response = make_vault_request("POST", mdl_endpoint, data=local_mdl.encode('utf-8'))
         if response.status_code == 200 and response.json().get("responseStatus") == "SUCCESS":
-            print(f"Pushed: {file_path}")
+            logging.info(f"Pushed: {file_path}")
             state[file_path] = local_checksum
         else:
-            print(f"Failed to push {file_path}: {response.text}")
+            logging.error(f"Failed to push {file_path}: {response.text}")
             
     for ctype, cname in dropped_components:
+        logging.debug(f"Dropping {ctype} {cname} from Vault...")
         response = make_vault_request("POST", mdl_endpoint, data=f"DROP {ctype} {cname};".encode('utf-8'))
         if response.status_code == 200 and response.json().get("responseStatus") == "SUCCESS":
-            print(f"Dropped: {ctype} {cname}")
+            logging.info(f"Dropped: {ctype} {cname}")
         else:
-            print(f"Failed to drop {ctype} {cname}: {response.text}")
+            logging.error(f"Failed to drop {ctype} {cname}: {response.text}")
             
     save_state(state)
-    print("Push complete.")
+    logging.info("Push complete.")
 """,
 
     "vdx_project/vdx/commands/package.py": r"""import os
 import sys
 import zipfile
+import logging
 from pathlib import Path
 from vdx.api import make_vault_request, API_VERSION
 from vdx.utils import compute_checksum
@@ -296,10 +335,10 @@ def run_package(args):
     template_path = os.path.join("templates", "vaultpackage.xml")
     
     if not os.path.exists(base_dir):
-        print("No /components directory found.")
+        logging.error("No /components directory found.")
         sys.exit(1)
         
-    print(f"Packaging local components into {vpk_filename}...")
+    logging.info(f"Packaging local components into {vpk_filename}...")
     
     with zipfile.ZipFile(vpk_filename, 'w', zipfile.ZIP_DEFLATED) as vpk:
         with open(template_path, 'r', encoding='utf-8') as tf:
@@ -333,8 +372,8 @@ def run_package(args):
                     
                     step_num += 10
                     
-    print(f"Successfully created custom package {vpk_filename}.")
-    print("Importing VPK to Vault...")
+    logging.info(f"Successfully created custom package {vpk_filename}.")
+    logging.info("Importing VPK to Vault...")
     import_endpoint = f"/api/{API_VERSION}/vpackages"
     
     with open(vpk_filename, 'rb') as f:
@@ -342,16 +381,19 @@ def run_package(args):
         
     if response.status_code == 200 and response.json().get("responseStatus") == "SUCCESS":
         package_id = response.json().get("data", {}).get("package_id__v")
-        print(f"Package successfully imported. Vault Package ID: {package_id}")
+        logging.info(f"Package successfully imported. Vault Package ID: {package_id}")
         
         val_res = make_vault_request("POST", f"/api/{API_VERSION}/vpackages/{package_id}/actions/validate")
         if val_res.status_code == 200:
-            print(f"Validation Job initiated successfully.")
+            logging.info(f"Validation Job initiated successfully.")
+        else:
+            logging.error(f"Failed to initiate validation job. Response: {val_res.text}")
     else:
-        print(f"Error importing package: {response.text}")
+        logging.error(f"Error importing package: {response.text}")
 """,
 
     "vdx_project/vdx/cli.py": r"""import argparse
+import logging
 from vdx.auth import login
 from vdx.commands.pull import run_pull
 from vdx.commands.push import run_push
@@ -359,6 +401,8 @@ from vdx.commands.package import run_package
 
 def main():
     parser = argparse.ArgumentParser(description="vdx - Veeva Vault Configuration Manager")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose/debug logging")
+    
     subparsers = parser.add_subparsers(dest="command", required=True)
     
     login_parser = subparsers.add_parser("login", help="Authenticate to Vault")
@@ -374,6 +418,9 @@ def main():
     subparsers.add_parser("package", help="Create, import, and validate a VPK")
     
     args = parser.parse_args()
+    
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    logging.basicConfig(level=log_level, format='%(message)s')
     
     if args.command == "login":
         login(args.vault_dns, args.username, args.password)
