@@ -1,8 +1,27 @@
 import os
 import sys
 import logging
+import json
 from vdx.api import make_vault_request, API_VERSION
 from vdx.utils import compute_checksum, load_state, save_state, load_ignore_patterns, is_ignored
+
+def truncate_error(data):
+    """
+    Truncates the error message to the first 1000 characters or 50 lines 
+    to prevent console flooding from large API responses.
+    """
+    text = json.dumps(data, indent=2) if isinstance(data, (dict, list)) else str(data)
+    
+    # Truncate by characters
+    if len(text) > 1000:
+        text = text[:1000] + "... [TRUNCATED]"
+    
+    # Truncate by lines
+    lines = text.splitlines()
+    if len(lines) > 50:
+        text = "\n".join(lines[:50]) + "\n... [TRUNCATED LINES]"
+        
+    return text
 
 def get_metadata_component_types():
     """
@@ -13,12 +32,20 @@ def get_metadata_component_types():
     response = make_vault_request("GET", endpoint)
     
     if response.status_code != 200:
-        logging.error("Failed to fetch component metadata.")
+        logging.error(f"Failed to fetch component metadata. HTTP {response.status_code}")
         return []
         
     data = response.json()
-    if data.get("responseStatus") != "SUCCESS":
-        logging.error(f"Metadata API Error: {data.get('errors')}")
+    status = data.get("responseStatus")
+    
+    if status == "WARNING":
+        # Log only the warnings list, not the full data payload
+        warning_info = data.get("warnings") or "Unknown warning occurred."
+        logging.warning(f"Metadata API Warning: {truncate_error(warning_info)}")
+    elif status != "SUCCESS":
+        # Improved error logging with truncation
+        error_info = data.get("errors") or data
+        logging.error(f"Metadata API Error: {truncate_error(error_info)}")
         return []
         
     # Filter for components where class == "metadata"
@@ -60,8 +87,16 @@ def run_pull(args):
         sys.exit(1)
         
     data = response.json()
-    if data.get("responseStatus") != "SUCCESS":
-        logging.error(f"Vault API Error: {data.get('errors')}")
+    status = data.get("responseStatus")
+
+    if status == "WARNING":
+        # Log only the warnings list, not the full record data
+        warning_info = data.get("warnings") or "Unknown warning occurred."
+        logging.warning(f"Vault API Warning: {truncate_error(warning_info)}")
+    elif status != "SUCCESS":
+        # Improved error logging with truncation
+        error_info = data.get("errors") or data
+        logging.error(f"Vault API Error: {truncate_error(error_info)}")
         sys.exit(1)
         
     records = data.get("data", [])
