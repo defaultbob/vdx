@@ -42,8 +42,8 @@ def run_pull(args):
     updated_count = deleted_count = 0
     
     for record in records:
-        comp_type = record.get("component_type__sys", "unknown")
-        comp_name = record.get("component_name__sys", "unknown")
+        comp_type = record.get("component_type__v", "unknown")
+        comp_name = record.get("component_name__v", "unknown")
         mdl_def = record.get("mdl_definition__v", "")
         
         type_dir = os.path.join(base_dir, comp_type)
