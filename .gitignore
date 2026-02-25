@@ -5,3 +5,4 @@ __pycache__
 .vdx_state.json
 /components/
 .DS_Store
+build_vdx.py
