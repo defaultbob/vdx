@@ -1,3 +1,5 @@
 .env
 __pycache__
 *.pyc
+.vdx_config
+.vdx_state.json
