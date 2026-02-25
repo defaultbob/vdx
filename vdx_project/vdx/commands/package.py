@@ -120,8 +120,20 @@ def run_package(args):
             if not job_info:
                 logging.error("Import failed during job execution.")
                 sys.exit(1)
-            # The package ID is usually in the job results for import jobs
-            package_id = job_info.get("package_id__v")
+            
+            # Extract the package ID from the 'artifacts' link in the job results
+            package_id = None
+            for link in job_info.get("links", []):
+                if link.get("rel") == "artifacts":
+                    href = link.get("href", "")
+                    parts = href.split('/')
+                    if "vault_package__v" in parts:
+                        package_id = parts[parts.index("vault_package__v") + 1]
+                        break
+            
+            # Fallback if not found in links
+            if not package_id:
+                package_id = job_info.get("package_id__v")
             
         if not package_id:
             logging.error("Could not retrieve Package ID from Vault response.")
