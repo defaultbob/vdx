@@ -6,11 +6,11 @@ import logging
 from getpass import getpass
 
 CONFIG_FILE = ".vdx_config"
-API_VERSION = "v25.3"
+API_VERSION = "v26.1"
 CLIENT_ID = "veeva-vault-vdx-client"
 
 def print_ascii_art():
-    art = '''
+    art = r'''
  __     __  _____   __   __ 
  \ \   / / |  __ \  \ \ / / 
   \ \_/ /  | |  | |  \ V /  
@@ -58,6 +58,11 @@ def login(dns=None, username=None, password=None, silent=False):
         with open(CONFIG_FILE, 'w') as f:
             json.dump(config, f)
             
+        # Per spec, login resets the state cache
+        if os.path.exists(".vdx_state.json"):
+            os.remove(".vdx_state.json")
+            if not silent: logging.info("Cleared local state cache (.vdx_state.json).")
+
         if not silent: logging.info("Login successful! Session and credentials saved locally.")
         return config
     else:

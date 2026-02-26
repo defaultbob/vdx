@@ -4,6 +4,7 @@ import zipfile
 import logging
 import time
 from pathlib import Path
+import json
 from vdx.api import make_vault_request, API_VERSION
 from vdx.utils import compute_checksum, load_state
 
@@ -21,16 +22,37 @@ def poll_job_status(job_id, job_type="job"):
     while attempts < max_attempts:
         response = make_vault_request("GET", endpoint)
         if response.status_code == 200:
-            job_data = response.json().get("data", {})
-            status = job_data.get("status")
-            
-            if status == "SUCCESS":
-                logging.info(f"{job_type.capitalize()} completed successfully.")
-                return job_data
-            elif status in ["FAILURE", "CANCELLED"]:
-                logging.error(f"{job_type.capitalize()} finished with status: {status}")
+            try:
+                resp_json = response.json()
+                if resp_json.get("responseStatus") != "SUCCESS":
+                    logging.error(f"Polling for {job_type} {job_id} reported a failure.")
+                    return None
+
+                # The job details are now directly in the 'data' object for /services/jobs
+                job_data = resp_json.get("data")
+                if isinstance(job_data, list):
+                    if not job_data:
+                        logging.error(f"Job {job_id} not found in polling response.")
+                        return None
+                    job_data = job_data[0] # Take the first item if it's a list
+
+                if not job_data:
+                    logging.error(f"Polling response for job {job_id} is missing the 'data' object.")
+                    return None
+
+                status = job_data.get("status")
+                
+                if status == "SUCCESS":
+                    logging.info(f"{job_type.capitalize()} completed successfully.")
+                    return job_data
+                elif status in ["FAILURE", "CANCELLED"]:
+                    logging.error(f"{job_type.capitalize()} finished with status: {status}")
+                    return None
+            except json.JSONDecodeError:
+                logging.error(f"Failed to parse JSON response while polling {job_type} {job_id}.")
+                logging.debug(f"[API DEBUG] Raw Response Body:\n{response.text}")
+                logging.debug("[API DEBUG] Expected a JSON object with a 'data' list containing the job status.")
                 return None
-            
             logging.debug(f"{job_type.capitalize()} status: {status}. Waiting 12 seconds...")
         else:
             logging.warning(f"Failed to check {job_type} status (HTTP {response.status_code}). Retrying...")
@@ -121,19 +143,18 @@ def run_package(args):
                 logging.error("Import failed during job execution.")
                 sys.exit(1)
             
-            # Extract the package ID from the 'artifacts' link in the job results
+            # Extract the package ID from the job results
             package_id = None
-            for link in job_info.get("links", []):
-                if link.get("rel") == "artifacts":
-                    href = link.get("href", "")
-                    parts = href.split('/')
-                    if "vault_package__v" in parts:
-                        package_id = parts[parts.index("vault_package__v") + 1]
-                        break
-            
+            # The job response for a package import contains a `package_id__v` field in the data object
+            job_artifacts = job_info.get("artifacts", {})
+            if job_artifacts:
+                # The package ID is often in the artifacts section
+                package_id = job_artifacts.get("vault_package__v", [None])[0]
+
             # Fallback if not found in links
             if not package_id:
-                package_id = job_info.get("package_id__v")
+                # Some older job responses might have it at the top level of the data object
+                package_id = job_info.get("data", {}).get("package_id__v")
             
         if not package_id:
             logging.error("Could not retrieve Package ID from Vault response.")

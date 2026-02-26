@@ -10,7 +10,9 @@ IGNORE_FILE = ".vdxignore"
 def compute_checksum(content):
     if content is None:
         return ""
-    return hashlib.md5(content.encode('utf-8')).hexdigest()
+    if isinstance(content, str):
+        content = content.encode('utf-8')
+    return hashlib.md5(content).hexdigest()
 
 def load_ignore_patterns():
     # We look for .vdxignore in the current working directory where the user runs the command

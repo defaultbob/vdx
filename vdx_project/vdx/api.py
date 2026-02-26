@@ -1,5 +1,6 @@
 import requests
 import logging
+import json
 from vdx.auth import get_config, login, API_VERSION, CLIENT_ID
 
 def make_vault_request(method, endpoint, **kwargs):
@@ -38,11 +39,11 @@ def make_vault_request(method, endpoint, **kwargs):
     try:
         resp_json = response.json()
         response_status = resp_json.get("responseStatus")
-    except ValueError:
+    except json.JSONDecodeError:
         response_status = None
 
     if response.status_code >= 400 or response_status == "FAILURE":
-        logging.error(f"[API ERROR] HTTP {response.status_code} on {method} {url}")
-        logging.error(f"[API ERROR] Response Body: {response.text}")
+        logging.error(f"[API ERROR] HTTP {response.status_code} on {method} {url}. Use --verbose for full response.")
+        logging.debug(f"[API DEBUG] Full Response Body:\n{response.text}")
         
     return response

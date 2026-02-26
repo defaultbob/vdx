@@ -4,6 +4,7 @@ from vdx.auth import login
 from vdx.commands.pull import run_pull
 from vdx.commands.push import run_push
 from vdx.commands.package import run_package
+from vdx.commands.clean import run_clean
 from vdx.utils import load_dotenv
 
 def main():
@@ -19,13 +20,20 @@ def main():
     login_parser.add_argument("-u", "--username", help="Vault Username")
     login_parser.add_argument("-p", "--password", help="Vault Password")
     login_parser.add_argument("-v", "--vault-dns", help="Vault DNS")
+    login_parser.add_argument("--verbose", action="store_true", help=argparse.SUPPRESS)
     
-    subparsers.add_parser("pull", help="Pull component MDLs from Vault")
+    pull_parser = subparsers.add_parser("pull", help="Pull all component types from Vault (MDL, SDK, Pages, etc.)")
+    pull_parser.add_argument("--verbose", action="store_true", help=argparse.SUPPRESS)
     
-    push_parser = subparsers.add_parser("push", help="Push local MDL changes to Vault")
+    push_parser = subparsers.add_parser("push", help="Push local changes to Vault (MDL, SDK, Pages, etc.)")
     push_parser.add_argument("--dry-run", action="store_true", help="Print changes without modifying")
+    push_parser.add_argument("--verbose", action="store_true", help=argparse.SUPPRESS)
     
-    subparsers.add_parser("package", help="Create, import, and validate a VPK")
+    package_parser = subparsers.add_parser("package", help="Create, import, and validate a VPK")
+    package_parser.add_argument("--verbose", action="store_true", help=argparse.SUPPRESS)
+    
+    clean_parser = subparsers.add_parser("clean", help="Remove local cache files (.vdx_config, .vdx_state.json)")
+    clean_parser.add_argument("--verbose", action="store_true", help=argparse.SUPPRESS)
     
     args = parser.parse_args()
     
@@ -40,3 +48,5 @@ def main():
         run_push(args)
     elif args.command == "package":
         run_package(args)
+    elif args.command == "clean":
+        run_clean(args)

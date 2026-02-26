@@ -4,6 +4,9 @@ __pycache__
 .vdx_config
 .vdx_state.json
 /components/
+/javasdk/
+/custom_pages/
+/translations/
 .DS_Store
 build_*.py
 vscode-extension/node_modules/
