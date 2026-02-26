@@ -2,7 +2,8 @@
     "name": "vdx-vscode",
     "displayName": "Vault Developer eXperience",
     "description": "VS Code integration for the vdx CLI tool",
-    "version": "0.1.0",
+    "version": "0.2.0",
+    "version": "0.1.1",
     "engines": {
         "vscode": "^1.80.0"
     },
@@ -15,28 +16,27 @@
         "commands": [
             {
                 "command": "vdx.login",
-                "title": "VDX: Login",
-                "category": "Vault"
+                "title": "VDX: Login to Vault"
             },
             {
                 "command": "vdx.pull",
-                "title": "VDX: Pull Components",
-                "category": "Vault"
+                "title": "VDX: Pull from Vault"
             },
             {
                 "command": "vdx.push",
-                "title": "VDX: Push Components",
-                "category": "Vault"
+                "title": "VDX: Push to Vault"
             },
             {
                 "command": "vdx.pushDryRun",
-                "title": "VDX: Push (Dry Run)",
-                "category": "Vault"
+                "title": "VDX: Push to Vault (Dry Run)"
             },
             {
                 "command": "vdx.package",
-                "title": "VDX: Create & Validate Package",
-                "category": "Vault"
+                "title": "VDX: Create and Validate Package"
+            },
+            {
+                "command": "vdx.clean",
+                "title": "VDX: Clean Local Cache"
             }
         ]
     },
