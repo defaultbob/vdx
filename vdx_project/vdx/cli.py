@@ -24,10 +24,12 @@ def main():
     
     pull_parser = subparsers.add_parser("pull", help="Pull all component types from Vault (MDL, SDK, Pages, etc.)")
     pull_parser.add_argument("--verbose", action="store_true", help=argparse.SUPPRESS)
+    pull_parser.add_argument("--translations", action="store_true", help="Include bulk translations in the pull operation.")
     
     push_parser = subparsers.add_parser("push", help="Push local changes to Vault (MDL, SDK, Pages, etc.)")
     push_parser.add_argument("--dry-run", action="store_true", help="Print changes without modifying")
     push_parser.add_argument("--verbose", action="store_true", help=argparse.SUPPRESS)
+    push_parser.add_argument("--translations", action="store_true", help="Include bulk translations in the push operation.")
     
     package_parser = subparsers.add_parser("package", help="Create, import, and validate a VPK")
     package_parser.add_argument("--verbose", action="store_true", help=argparse.SUPPRESS)

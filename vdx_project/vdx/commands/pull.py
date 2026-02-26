@@ -388,8 +388,11 @@ def run_pull(args):
         pull_mdl_components,
         pull_java_sdk,
         pull_custom_pages,
-        pull_translations
     ]
+
+    if args.translations:
+        logging.info("Including translations in pull operation.")
+        pull_functions.append(pull_translations)
 
     for pull_func in pull_functions:
         try:

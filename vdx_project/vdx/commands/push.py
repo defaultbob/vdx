@@ -222,7 +222,12 @@ def run_push(args):
     total_updated += push_mdl_changes(mdl_changes, mdl_deletions, args.dry_run)
     total_updated += push_java_sdk_changes(java_changes, java_deletions, args.dry_run)
     total_updated += push_custom_page_changes(list(changed_page_dirs), list(deleted_page_dirs), args.dry_run)
-    total_updated += push_translation_changes(translation_changes, args.dry_run)
+
+    if args.translations:
+        logging.info("Including translations in push operation.")
+        total_updated += push_translation_changes(translation_changes, args.dry_run)
+    elif translation_changes:
+        logging.info(f"Found {len(translation_changes)} translation change(s). Use --translations to include them in the push.")
 
     if not args.dry_run:
         logging.info("Updating local state...")
