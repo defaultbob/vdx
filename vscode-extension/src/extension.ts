@@ -20,10 +20,37 @@ export function activate(context: vscode.ExtensionContext) {
     // Register all commands
     context.subscriptions.push(
         vscode.commands.registerCommand('vdx.login', () => runVdxCommand('login')),
-        vscode.commands.registerCommand('vdx.pull', () => runVdxCommand('pull')),
-        vscode.commands.registerCommand('vdx.push', () => runVdxCommand('push')),
-        vscode.commands.registerCommand('vdx.pushDryRun', () => runVdxCommand('push --dry-run')),
-        vscode.commands.registerCommand('vdx.package', () => runVdxCommand('package'))
+
+        vscode.commands.registerCommand('vdx.pull', async () => {
+            const includeTranslations = await vscode.window.showQuickPick(['No', 'Yes'], {
+                placeHolder: 'Include translations in pull?'
+            });
+            if (includeTranslations === undefined) return; // User cancelled
+            const command = includeTranslations === 'Yes' ? 'pull --translations' : 'pull';
+            runVdxCommand(command);
+        }),
+
+        vscode.commands.registerCommand('vdx.push', async () => {
+            const includeTranslations = await vscode.window.showQuickPick(['No', 'Yes'], {
+                placeHolder: 'Include translations in push?'
+            });
+            if (includeTranslations === undefined) return; // User cancelled
+            const command = includeTranslations === 'Yes' ? 'push --translations' : 'push';
+            runVdxCommand(command);
+        }),
+
+        vscode.commands.registerCommand('vdx.pushDryRun', async () => {
+            const includeTranslations = await vscode.window.showQuickPick(['No', 'Yes'], {
+                placeHolder: 'Include translations in push (dry-run)?'
+            });
+            if (includeTranslations === undefined) return; // User cancelled
+            const command = includeTranslations === 'Yes' ? 'push --dry-run --translations' : 'push --dry-run';
+            runVdxCommand(command);
+        }),
+
+        vscode.commands.registerCommand('vdx.package', () => runVdxCommand('package')),
+
+        vscode.commands.registerCommand('vdx.clean', () => runVdxCommand('clean'))
     );
 }
 
