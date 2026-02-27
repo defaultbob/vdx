@@ -3,7 +3,6 @@
     "displayName": "Vault Developer eXperience",
     "description": "VS Code integration for the vdx CLI tool",
     "version": "0.2.0",
-    "version": "0.1.1",
     "engines": {
         "vscode": "^1.80.0"
     },
