@@ -79,7 +79,7 @@ export function activate(context: vscode.ExtensionContext) {
             const workspaceRoot = workspaceFolders[0].uri.fsPath;
             const vdxPath = path.join(projectPath, 'venv', 'bin', 'vdx');
 
-            exec(`"${vdxPath}" patch --json`, { cwd: workspaceRoot }, (error, stdout, stderr) => {
+            exec(`"${vdxPath}" patch --json`, { cwd: workspaceRoot }, async (error, stdout, stderr) => {
                 if (error) {
                     // Check for the specific "No such file or directory" error related to vdxPath
                     if (error.message.includes(vdxPath)) {
@@ -97,27 +97,82 @@ export function activate(context: vscode.ExtensionContext) {
                         return;
                     }
 
-                    const tempFiles: string[] = [];
-
+                    // Group changes by component type
+                    const groups = new Map<string, any[]>();
                     changes.forEach(change => {
-                        const originalUri = vscode.Uri.file(change.original_file);
-                        const modifiedUri = vscode.Uri.file(change.modified_file);
-                        tempFiles.push(change.original_file);
-
-                        const filename = path.basename(change.file_path);
-                        vscode.commands.executeCommand('vscode.diff', originalUri, modifiedUri, `${filename} (Original <-> Local)`);
+                        const pathParts = change.file_path.split(path.sep);
+                        const componentsIndex = pathParts.indexOf('components');
+                        if (componentsIndex > -1 && pathParts.length > componentsIndex + 1) {
+                            const componentType = pathParts[componentsIndex + 1];
+                            if (!groups.has(componentType)) {
+                                groups.set(componentType, []);
+                            }
+                            groups.get(componentType)!.push(change);
+                        }
                     });
 
-                    // Cleanup temp files after a short delay
+                    const componentTypes = Array.from(groups.keys());
+                    let selectedChanges = [];
+
+                    if (componentTypes.length > 1) {
+                        // More than one type, so show type picker first
+                        const typePickItems = componentTypes.map(type => ({
+                            label: type,
+                            description: `${groups.get(type)!.length} changed component(s)`
+                        }));
+
+                        const selectedType = await vscode.window.showQuickPick(typePickItems, {
+                            placeHolder: "Select a component type to view changes"
+                        });
+
+                        if (!selectedType) { // User cancelled the type picker
+                            // Still need to clean up temp files
+                            const tempFiles = changes.map(c => c.original_file);
+                            setTimeout(() => {
+                                tempFiles.forEach(filePath => fs.unlink(filePath, () => {}));
+                            }, 1000);
+                            return;
+                        }
+                        selectedChanges = groups.get(selectedType.label)!;
+
+                    } else if (componentTypes.length === 1) {
+                        // Only one type, bypass type picker
+                        selectedChanges = groups.get(componentTypes[0])!;
+                    } else {
+                        // No component files found, but other files might have changed which we don't handle here
+                        vscode.window.showInformationMessage("No recognized component changes detected.");
+                        return;
+                    }
+
+                    // Show file picker for the selected (or only) type
+                    const filePickItems = selectedChanges.map(change => ({
+                        label: path.basename(change.file_path),
+                        description: change.file_path,
+                        change: change
+                    }));
+
+                    const selectedFileItem = await vscode.window.showQuickPick(filePickItems, {
+                        placeHolder: "Select a file to view the diff"
+                    });
+
+                    // Cleanup all temp files created by the patch command
+                    const tempFiles = changes.map(c => c.original_file);
                     setTimeout(() => {
                         tempFiles.forEach(filePath => {
                             fs.unlink(filePath, (err) => {
-                                if (err) {
-                                    console.error(`Failed to delete temp file: ${filePath}`, err);
-                                }
+                                if (err) console.error(`Failed to delete temp file: ${filePath}`, err);
                             });
                         });
                     }, 5000);
+
+                    if (selectedFileItem) {
+                        const change = selectedFileItem.change;
+                        const originalUri = vscode.Uri.file(change.original_file);
+                        const modifiedUri = vscode.Uri.file(change.modified_file);
+                        const filename = path.basename(change.file_path);
+                        
+                        vscode.commands.executeCommand('vscode.diff', originalUri, modifiedUri, `${filename} (Original <-> Local)`);
+                    }
 
                 } catch (e) {
                     vscode.window.showErrorMessage(`Failed to parse changes from vdx command: ${e}`);
