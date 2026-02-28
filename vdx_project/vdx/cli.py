@@ -5,6 +5,7 @@ from vdx.commands.pull import run_pull
 from vdx.commands.push import run_push
 from vdx.commands.package import run_package
 from vdx.commands.clean import run_clean
+from vdx.commands.patch import run_patch
 from vdx.utils import load_dotenv
 
 def main():
@@ -36,6 +37,10 @@ def main():
     
     clean_parser = subparsers.add_parser("clean", help="Remove local cache files (.vdx_config, .vdx_state.json)")
     clean_parser.add_argument("--verbose", action="store_true", help=argparse.SUPPRESS)
+
+    patch_parser = subparsers.add_parser("patch", help="Generate a patch file of local changes")
+    patch_parser.add_argument("--verbose", action="store_true", help=argparse.SUPPRESS)
+    patch_parser.add_argument("--json", action="store_true", help="Output changes as JSON for VSCode extension")
     
     args = parser.parse_args()
     
@@ -50,5 +55,7 @@ def main():
         run_push(args)
     elif args.command == "package":
         run_package(args)
+    elif args.command == "patch":
+        run_patch(args)
     elif args.command == "clean":
         run_clean(args)

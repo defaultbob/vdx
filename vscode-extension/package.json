@@ -2,7 +2,7 @@
     "name": "vdx-vscode",
     "displayName": "Vault Developer eXperience",
     "description": "VS Code integration for the vdx CLI tool",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "engines": {
         "vscode": "^1.80.0"
     },
@@ -36,6 +36,10 @@
             {
                 "command": "vdx.clean",
                 "title": "VDX: Clean Local Cache"
+            },
+            {
+                "command": "vdx.showChangesInUI",
+                "title": "VDX: Show Local Changes in UI"
             }
         ]
     },
