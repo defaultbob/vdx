@@ -15,3 +15,4 @@ vdx_project/vdx.egg-info/
 package-lock.json
 vscode-extension/out/
 *.vsix
+vdx_patch_debug.log
