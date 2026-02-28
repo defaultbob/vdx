@@ -48,7 +48,10 @@ def run_patch(args):
                     modified_files.append((file_path, content))
 
     if not modified_files:
-        logging.info("No modified components found.")
+        if args.json:
+            print("[]")
+        else:
+            logging.info("No modified components found.")
         sys.exit(0)
 
     if args.json:
@@ -74,6 +77,33 @@ def run_patch(args):
         sys.exit(0)
 
 
+    logging.info(f"Found {len(modified_files)} modified components. Generating patch...")
+
+    all_diffs = []
+    for file_path, current_content in modified_files:
+        path_parts = Path(file_path).parts
+        comp_type = path_parts[-2]
+        comp_name = path_parts[-1].replace(".mdl", "")
+        
+        original_content = get_vault_mdl_content(comp_type, comp_name)
+        
+        if original_content is not None:
+            diff = difflib.unified_diff(
+                original_content.splitlines(keepends=True),
+                current_content.splitlines(keepends=True),
+                fromfile=f"a/{file_path}",
+                tofile=f"b/{file_path}",
+            )
+            all_diffs.extend(list(diff))
+
+    if not all_diffs:
+        logging.info("Could not generate diffs for modified files. This might be due to issues fetching original content from Vault.")
+        sys.exit(0)
+
+    with open(patch_filename, 'w', encoding='utf-8') as f:
+        f.writelines(all_diffs)
+        
+    logging.info(f"Successfully created patch file: {patch_filename}")
     logging.info(f"Found {len(modified_files)} modified components. Generating patch...")
 
     all_diffs = []

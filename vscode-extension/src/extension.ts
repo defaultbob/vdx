@@ -55,24 +55,45 @@ export function activate(context: vscode.ExtensionContext) {
 
         vscode.commands.registerCommand('vdx.clean', () => runVdxCommand('clean')),
 
-        vscode.commands.registerCommand('vdx.showChangesInUI', () => {
+        vscode.commands.registerCommand('vdx.showChangesInUI', async () => {
+            const config = vscode.workspace.getConfiguration('vdx');
+            const projectPath = config.get<string>('projectPath');
+
+            if (!projectPath) {
+                const openSettings = 'Open Settings';
+                const selection = await vscode.window.showErrorMessage(
+                    'The path to your VDX project is not configured. Please set the "vdx.projectPath" setting.',
+                    openSettings
+                );
+                if (selection === openSettings) {
+                    vscode.commands.executeCommand('workbench.action.openSettings', 'vdx.projectPath');
+                }
+                return;
+            }
+
             const workspaceFolders = vscode.workspace.workspaceFolders;
             if (!workspaceFolders) {
                 vscode.window.showErrorMessage("No workspace folder open.");
                 return;
             }
             const workspaceRoot = workspaceFolders[0].uri.fsPath;
+            const vdxPath = path.join(projectPath, 'venv', 'bin', 'vdx');
 
-            exec('vdx patch --json', { cwd: workspaceRoot }, (error, stdout, stderr) => {
+            exec(`"${vdxPath}" patch --json`, { cwd: workspaceRoot }, (error, stdout, stderr) => {
                 if (error) {
-                    vscode.window.showErrorMessage(`Error executing vdx patch: ${stderr}`);
+                    // Check for the specific "No such file or directory" error related to vdxPath
+                    if (error.message.includes(vdxPath)) {
+                         vscode.window.showErrorMessage(`Could not find the vdx executable at the configured path: ${vdxPath}. Please check your 'vdx.projectPath' setting and ensure the virtual environment exists.`);
+                    } else {
+                        vscode.window.showErrorMessage(`Error executing vdx patch: ${stderr || error.message}`);
+                    }
                     return;
                 }
 
                 try {
                     const changes = JSON.parse(stdout);
                     if (!Array.isArray(changes) || changes.length === 0) {
-                        vscode.window.showInformationMessage("No local changes detected.");
+                        vscode.window.showInformationMessage("No local changes detected in the VDX project.");
                         return;
                     }
 
@@ -87,7 +108,7 @@ export function activate(context: vscode.ExtensionContext) {
                         vscode.commands.executeCommand('vscode.diff', originalUri, modifiedUri, `${filename} (Original <-> Local)`);
                     });
 
-                    // Cleanup temp files after a short delay to ensure they are no longer needed by VS Code
+                    // Cleanup temp files after a short delay
                     setTimeout(() => {
                         tempFiles.forEach(filePath => {
                             fs.unlink(filePath, (err) => {
@@ -99,7 +120,7 @@ export function activate(context: vscode.ExtensionContext) {
                     }, 5000);
 
                 } catch (e) {
-                    vscode.window.showErrorMessage(`Failed to parse changes: ${e}`);
+                    vscode.window.showErrorMessage(`Failed to parse changes from vdx command: ${e}`);
                 }
             });
         })
