@@ -2,9 +2,53 @@ import * as vscode from 'vscode';
 import { exec } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as util from 'util';
 
-export function activate(context: vscode.ExtensionContext) {
+const execPromise = util.promisify(exec);
+
+export async function activate(context: vscode.ExtensionContext) {
     let terminal: vscode.Terminal | undefined;
+
+    // 1. Define paths for the isolated environment in the extension's global storage
+    const storageUri = context.globalStorageUri;
+    if (!fs.existsSync(storageUri.fsPath)) {
+        fs.mkdirSync(storageUri.fsPath, { recursive: true });
+    }
+    
+    const venvPath = path.join(storageUri.fsPath, 'venv');
+    const isWin = process.platform === 'win32';
+    const pythonCmd = isWin ? path.join(venvPath, 'Scripts', 'python.exe') : path.join(venvPath, 'bin', 'python');
+    const pipCmd = isWin ? path.join(venvPath, 'Scripts', 'pip.exe') : path.join(venvPath, 'bin', 'pip');
+
+    // Path to the CLI bundled inside the extension
+    const vdxMainPath = context.asAbsolutePath(path.join('vdx_project', 'main.py'));
+
+    // 2. Automatically initialize the virtual environment if missing
+    if (!fs.existsSync(pythonCmd)) {
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: "Initializing VDX Environment (First Run)...",
+            cancellable: false
+        }, async () => {
+            try {
+                // Determine system python
+                const sysPython = isWin ? 'python' : 'python3';
+                await execPromise(`${sysPython} -m venv "${venvPath}"`);
+                
+                // Install dependencies
+                const reqPath = context.asAbsolutePath(path.join('vdx_project', 'requirements.txt'));
+                if (fs.existsSync(reqPath)) {
+                    await execPromise(`"${pipCmd}" install -r "${reqPath}"`);
+                } else {
+                    await execPromise(`"${pipCmd}" install requests`);
+                }
+                
+                vscode.window.showInformationMessage("VDX CLI setup complete!");
+            } catch (err) {
+                vscode.window.showErrorMessage(`Failed to set up VDX environment: ${err}`);
+            }
+        });
+    }
 
     // Helper to get or create a dedicated terminal for vdx
     function getTerminal() {
@@ -17,7 +61,8 @@ export function activate(context: vscode.ExtensionContext) {
     function runVdxCommand(command: string) {
         const t = getTerminal();
         t.show();
-        t.sendText(`vdx ${command}`);
+        // Execute using the isolated python environment running the bundled main.py
+        t.sendText(`"${pythonCmd}" "${vdxMainPath}" ${command}`);
     }
 
     // Register all commands
@@ -56,37 +101,16 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('vdx.clean', () => runVdxCommand('clean')),
 
         vscode.commands.registerCommand('vdx.showChangesInUI', async () => {
-            const config = vscode.workspace.getConfiguration('vdx');
-            const projectPath = config.get<string>('projectPath');
-
-            if (!projectPath) {
-                const openSettings = 'Open Settings';
-                const selection = await vscode.window.showErrorMessage(
-                    'The path to your VDX project is not configured. Please set the "vdx.projectPath" setting.',
-                    openSettings
-                );
-                if (selection === openSettings) {
-                    vscode.commands.executeCommand('workbench.action.openSettings', 'vdx.projectPath');
-                }
-                return;
-            }
-
             const workspaceFolders = vscode.workspace.workspaceFolders;
             if (!workspaceFolders) {
                 vscode.window.showErrorMessage("No workspace folder open.");
                 return;
             }
             const workspaceRoot = workspaceFolders[0].uri.fsPath;
-            const vdxPath = path.join(projectPath, 'venv', 'bin', 'vdx');
 
-            exec(`"${vdxPath}" patch --json`, { cwd: workspaceRoot }, async (error, stdout, stderr) => {
+            exec(`"${pythonCmd}" "${vdxMainPath}" patch --json`, { cwd: workspaceRoot }, async (error, stdout, stderr) => {
                 if (error) {
-                    // Check for the specific "No such file or directory" error related to vdxPath
-                    if (error.message.includes(vdxPath)) {
-                         vscode.window.showErrorMessage(`Could not find the vdx executable at the configured path: ${vdxPath}. Please check your 'vdx.projectPath' setting and ensure the virtual environment exists.`);
-                    } else {
-                        vscode.window.showErrorMessage(`Error executing vdx patch: ${stderr || error.message}`);
-                    }
+                    vscode.window.showErrorMessage(`Error executing vdx patch: ${stderr || error.message}`);
                     return;
                 }
 
@@ -99,7 +123,7 @@ export function activate(context: vscode.ExtensionContext) {
 
                     // Group changes by component type
                     const groups = new Map<string, any[]>();
-                    changes.forEach(change => {
+                    changes.forEach((change: any) => {
                         const pathParts = change.file_path.split(path.sep);
                         const componentsIndex = pathParts.indexOf('components');
                         if (componentsIndex > -1 && pathParts.length > componentsIndex + 1) {
@@ -112,7 +136,7 @@ export function activate(context: vscode.ExtensionContext) {
                     });
 
                     const componentTypes = Array.from(groups.keys());
-                    let selectedChanges = [];
+                    let selectedChanges: any[] = [];
 
                     if (componentTypes.length > 1) {
                         // More than one type, so show type picker first
@@ -127,9 +151,9 @@ export function activate(context: vscode.ExtensionContext) {
 
                         if (!selectedType) { // User cancelled the type picker
                             // Still need to clean up temp files
-                            const tempFiles = changes.map(c => c.original_file);
+                            const tempFiles = changes.map((c: any) => c.original_file);
                             setTimeout(() => {
-                                tempFiles.forEach(filePath => fs.unlink(filePath, () => {}));
+                                tempFiles.forEach((filePath: string) => fs.unlink(filePath, () => {}));
                             }, 1000);
                             return;
                         }
@@ -156,9 +180,9 @@ export function activate(context: vscode.ExtensionContext) {
                     });
 
                     // Cleanup all temp files created by the patch command
-                    const tempFiles = changes.map(c => c.original_file);
+                    const tempFiles = changes.map((c: any) => c.original_file);
                     setTimeout(() => {
-                        tempFiles.forEach(filePath => {
+                        tempFiles.forEach((filePath: string) => {
                             fs.unlink(filePath, (err) => {
                                 if (err) console.error(`Failed to delete temp file: ${filePath}`, err);
                             });

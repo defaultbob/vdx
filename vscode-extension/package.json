@@ -2,7 +2,12 @@
     "name": "vdx-vscode",
     "displayName": "Vault Developer eXperience",
     "description": "VS Code integration for the vdx CLI tool",
-    "version": "0.3.7",
+    "version": "0.3.9",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/davidmills/vdx"
+    },
+    "license": "MIT",
     "engines": {
         "vscode": "^1.80.0"
     },
@@ -41,20 +46,11 @@
                 "command": "vdx.showChangesInUI",
                 "title": "VDX: Show Local Changes in UI"
             }
-        ],
-        "configuration": {
-            "title": "VDX",
-            "properties": {
-                "vdx.projectPath": {
-                    "type": "string",
-                    "default": "",
-                    "description": "The absolute path to the root of your vdx project directory."
-                }
-            }
-        }
+        ]
     },
     "scripts": {
-        "vscode:prepublish": "npm run compile",
+        "vscode:prepublish": "npm run copy-cli && npm run compile",
+        "copy-cli": "mkdir -p ./vdx_project && cp -r ../vdx_project/* ./vdx_project/",
         "compile": "tsc -p ./",
         "watch": "tsc -watch -p ./",
         "pretest": "npm run compile && npm run lint",

@@ -11,8 +11,9 @@ __pycache__
 build_*.py
 vscode-extension/node_modules/
 build/
-vdx_project/vdx.egg-info/
+*.egg-info/
 package-lock.json
 vscode-extension/out/
 *.vsix
 vdx_patch_debug.log
+dist/
