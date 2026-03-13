@@ -3,8 +3,14 @@ import re
 import hashlib
 import json
 import os
+import logging
 import fnmatch
 from pathlib import Path
+
+try:
+    from vdx.version import VERSION
+except ImportError:
+    VERSION = "0.0.0"
 
 STATE_FILE = ".vdx_state.json"
 IGNORE_FILE = ".vdxignore"
@@ -31,11 +37,20 @@ def is_ignored(file_path, patterns):
 
 def load_state():
     if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, 'r') as f:
-            return json.load(f)
+        try:
+            with open(STATE_FILE, 'r') as f:
+                state = json.load(f)
+                state_version = state.get("__vdx_version__", "0.0.0")
+                if state_version != VERSION:
+                    logging.info(f"VDX upgraded ({state_version} -> {VERSION}). Invalidating local state to force a clean pull.")
+                    return {}
+                return state
+        except Exception:
+            return {}
     return {}
 
 def save_state(state):
+    state["__vdx_version__"] = VERSION
     with open(STATE_FILE, 'w') as f:
         json.dump(state, f, indent=4)
 
@@ -141,8 +156,12 @@ def process_mdl_and_extract(mdl_str, metadata_json, comp_type, comp_name, base_d
     # Quick fix to get metadata attributes
     attributes_metadata = {}
     if metadata_json and "data" in metadata_json:
-        for attr in metadata_json["data"]:
-            attributes_metadata[attr.get("name")] = attr
+        data_obj = metadata_json["data"]
+        # In component metadata, "data" is an object that contains an "attributes" array
+        if isinstance(data_obj, dict) and "attributes" in data_obj:
+            for attr in data_obj["attributes"]:
+                if isinstance(attr, dict):
+                    attributes_metadata[attr.get("name")] = attr
             
     extracted_files = {}
 
