@@ -20,3 +20,4 @@ dist/
 PROGRESS.md
 .tmp/
 .vdx_error.log
+vscode-extension/vdx_project/

@@ -137,10 +137,12 @@ This section is designed to provide context for AI coding agents or developers a
 When a Vault is pulled using `vdx pull`, the workspace is populated with specific directory structures based on the component types and classifications:
 
 *   **`components/`**: Stores Vault `metadata` components.
-    *   Organized by component type (e.g., `components/Object/`, `components/Docfield/`, `components/Reporttype/`).
-    *   **`.mdl` files**: The core configuration scripts (e.g., `my_object__c.mdl`).
-    *   **`.d` files**: Bidirectional dependency graphs for the component (e.g., `my_object__c.d`).
-    *   **`METADATA-{type}.json`**: Type-level metadata definition (e.g., `METADATA-Object.json`).
+    *   Organized by component type and component (e.g., `components/Object/country__v`, `components/Docfield/name__v`.
+    *   **`.mdl` files**: The core configuration scripts (e.g., `Object.my_object__c.mdl`).
+    *   **`.d` files**: Bidirectional dependency graphs for the component (e.g., `Object.my_object__c.d`).
+    *   **.xml|.json|.html files**: extracted from the raw MDL as stored as correct extension for easier viewing. Stored by attribute name (e.g., ``)
+    *   **`METADATA-{type}.json`**: Type-level metadata definition in the type folder (e.g., `components/Object/METADATA.json`).
+    *   **Subcomponents**: 
 *   **`javasdk/`**: Stores Vault `code` components (Java SDK).
     *   Files are downloaded as raw `.java` files.
     *   Organized into standard Java package directory structures parsed directly from the source code (e.g., `javasdk/com/veeva/vault/custom/triggers/MyTrigger.java`).
