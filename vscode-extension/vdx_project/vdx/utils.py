@@ -69,3 +69,50 @@ def load_dotenv(filepath=".env"):
                     val = val.strip().strip('\'"')
                     if key.strip() not in os.environ:
                         os.environ[key.strip()] = val
+
+def format_mdl(mdl_str):
+    if not mdl_str or '\n' in mdl_str.strip():
+        return mdl_str
+    
+    first_paren = mdl_str.find('(')
+    last_paren = mdl_str.rfind(')')
+    if first_paren == -1 or last_paren == -1 or first_paren >= last_paren:
+        return mdl_str
+        
+    header = mdl_str[:first_paren]
+    content = mdl_str[first_paren+1:last_paren]
+    footer = mdl_str[last_paren+1:]
+    
+    attrs = []
+    current_attr = []
+    depth = 0
+    in_quotes = False
+    quote_char = ''
+    
+    for char in content:
+        if in_quotes:
+            current_attr.append(char)
+            if char == quote_char:
+                in_quotes = False
+        else:
+            if char in ["'", '"']:
+                in_quotes = True
+                quote_char = char
+                current_attr.append(char)
+            elif char == '(':
+                depth += 1
+                current_attr.append(char)
+            elif char == ')':
+                depth -= 1
+                current_attr.append(char)
+            elif char == ',' and depth == 0:
+                attrs.append("".join(current_attr).strip())
+                current_attr = []
+            else:
+                current_attr.append(char)
+    if current_attr:
+        attrs.append("".join(current_attr).strip())
+        
+    formatted_attrs = ",\n   ".join(attrs)
+    return f"{header}(\n   {formatted_attrs}\n){footer}"
+

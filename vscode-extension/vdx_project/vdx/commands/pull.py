@@ -7,7 +7,7 @@ import io
 import zipfile
 import re
 from vdx.api import make_vault_request, API_VERSION
-from vdx.utils import compute_checksum, load_state, save_state, load_ignore_patterns, is_ignored, sort_json_obj
+from vdx.utils import compute_checksum, load_state, save_state, load_ignore_patterns, is_ignored, sort_json_obj, format_mdl
 def truncate_error(data):
     """
     Truncates the error message to the first 1000 characters or 50 lines 
@@ -167,12 +167,7 @@ def pull_mdl_components(state, ignore_patterns):
                 _update_local_file(ext_file_path, markup_clean, state)
 
         # 2. Format MDL if it's all on one line
-        if mdl_def and "\n" not in mdl_def.strip():
-            try:
-                import sqlparse
-                mdl_def = sqlparse.format(mdl_def, reindent=True, keyword_case='upper')
-            except ImportError:
-                pass
+        mdl_def = format_mdl(mdl_def)
 
         file_path = os.path.join(base_dir, comp_type, f"{comp_name}.mdl")
         if is_ignored(file_path, ignore_patterns):

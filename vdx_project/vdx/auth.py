@@ -71,7 +71,7 @@ def login(dns=None, username=None, password=None, silent=False):
 
 def get_config():
     if not os.path.exists(CONFIG_FILE):
-        logging.error("Error: Not logged in. Run 'vdx login' first.")
-        sys.exit(1)
+        logging.info("No active session found. Attempting automatic login...")
+        return login(silent=True)
     with open(CONFIG_FILE, 'r') as f:
         return json.load(f)
