@@ -2,7 +2,7 @@
     "name": "vdx-vscode",
     "displayName": "Vault Developer eXperience",
     "description": "VS Code integration for the vdx CLI tool",
-    "version": "0.4.1",
+    "version": "0.4.2",
     "repository": {
         "type": "git",
         "url": "https://github.com/davidmills/vdx"

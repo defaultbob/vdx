@@ -18,3 +18,5 @@ vscode-extension/out/
 vdx_patch_debug.log
 dist/
 PROGRESS.md
+.tmp/
+.vdx_error.log

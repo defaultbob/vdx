@@ -2,4 +2,4 @@
 # components/Report/*
 
 # Ignore Vault-managed picklists that cannot be modified
-components/Picklist/*__sys
+# components/Picklist/*__sys

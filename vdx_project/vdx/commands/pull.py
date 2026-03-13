@@ -286,6 +286,84 @@ def pull_custom_pages(state, ignore_patterns):
 
     return vault_files, updated_count
 
+
+def pull_dependencies(state, ignore_patterns):
+    """Pulls component dependencies and writes .d files."""
+    logging.info("Pulling component dependencies...")
+    vault_files = {}
+    updated_count = 0
+    base_dir = "components"
+
+    query = "SELECT blocking__sys, target_component_name__sys, target_component_type__sys, target_sub_name__sys, target_sub_type__sys, comp_rel_source_comp__sysr.component_name__v, comp_rel_source_comp__sysr.component_type__v FROM vault_component_relationship__sys"
+    endpoint = f"/api/{API_VERSION}/query"
+    response = make_vault_request("POST", endpoint, data={"q": query})
+    data = _handle_api_response(response, "Component Relationships: ")
+    if not data:
+        return {}, 0
+
+    records = data.get("data", [])
+    current_data = data
+    while current_data.get("responseDetails", {}).get("next_page"):
+        next_url = current_data["responseDetails"]["next_page"]
+        logging.info("Traversing next page for relationships...")
+        response = make_vault_request("GET", next_url)
+        current_data = _handle_api_response(response, "Component Relationships Page: ")
+        if not current_data:
+            break
+        records.extend(current_data.get("data", []))
+
+    from collections import defaultdict
+    relationships = defaultdict(lambda: {"depends_on": [], "used_by": []})
+
+    for record in records:
+        src_type = record.get("comp_rel_source_comp__sysr.component_type__v")
+        src_name = record.get("comp_rel_source_comp__sysr.component_name__v")
+        tgt_type = record.get("target_component_type__sys")
+        tgt_name = record.get("target_component_name__sys")
+
+        if not src_type or not src_name or not tgt_type or not tgt_name:
+            continue
+
+        blocking_val = record.get("blocking__sys", [])
+        is_blocking = "true" if ("block__sys" in blocking_val) else "false"
+
+        tgt_sub_type = record.get("target_sub_type__sys")
+        tgt_sub_name = record.get("target_sub_name__sys")
+
+        dep_str = f"depends_on: {tgt_type}.{tgt_name} [blocking={is_blocking}]"
+        if tgt_sub_type and tgt_sub_name:
+            dep_str += f" [target_sub={tgt_sub_type}.{tgt_sub_name}]"
+
+        used_str = f"used_by: {src_type}.{src_name} [blocking={is_blocking}]"
+        if tgt_sub_type and tgt_sub_name:
+            used_str += f" [target_sub={tgt_sub_type}.{tgt_sub_name}]"
+
+        relationships[(src_type, src_name)]["depends_on"].append(dep_str)
+        relationships[(tgt_type, tgt_name)]["used_by"].append(used_str)
+
+    for (comp_type, comp_name), rels in relationships.items():
+        file_path = os.path.join(base_dir, comp_type, f"{comp_name}.d")
+        if is_ignored(file_path, ignore_patterns):
+            continue
+
+        # Deduplicate and sort
+        depends_on = sorted(list(set(rels["depends_on"])))
+        used_by = sorted(list(set(rels["used_by"])))
+
+        lines = []
+        if depends_on:
+            lines.extend(depends_on)
+        if used_by:
+            lines.extend(used_by)
+
+        content_to_write = "\n".join(lines) + "\n"
+        vault_files[file_path] = True
+
+        if _update_local_file(file_path, content_to_write, state):
+            updated_count += 1
+
+    return vault_files, updated_count
+
 def pull_translations(state, ignore_patterns):
     """Exports and pulls bulk translation files per language and message type, as per spec."""
     logging.info("Pulling bulk translations...")
@@ -403,6 +481,7 @@ def run_pull(args):
         pull_mdl_components,
         pull_java_sdk,
         pull_custom_pages,
+        pull_dependencies,
     ]
 
     if args.translations:
