@@ -1,124 +1,7 @@
-import xml.dom.minidom
 import re
-import hashlib
 import json
+import xml.dom.minidom
 import os
-import fnmatch
-from pathlib import Path
-
-STATE_FILE = ".vdx_state.json"
-IGNORE_FILE = ".vdxignore"
-
-def compute_checksum(content):
-    if content is None:
-        return ""
-    if isinstance(content, str):
-        content = content.encode('utf-8')
-    return hashlib.md5(content).hexdigest()
-
-def load_ignore_patterns():
-    # We look for .vdxignore in the current working directory where the user runs the command
-    if os.path.exists(IGNORE_FILE):
-        with open(IGNORE_FILE, 'r') as f:
-            return [line.strip() for line in f if line.strip() and not line.startswith('#')]
-    return []
-
-def is_ignored(file_path, patterns):
-    for pattern in patterns:
-        if fnmatch.fnmatch(file_path, pattern):
-            return True
-    return False
-
-def load_state():
-    if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, 'r') as f:
-            return json.load(f)
-    return {}
-
-def save_state(state):
-    with open(STATE_FILE, 'w') as f:
-        json.dump(state, f, indent=4)
-
-def sort_json_obj(obj):
-    """
-    Recursively sorts JSON objects to ensure deterministic output for version control.
-    Dictionaries are sorted by their keys (when dumped with sort_keys=True).
-    Lists of primitives or dictionaries with 'name' are sorted accordingly.
-    """
-    if isinstance(obj, dict):
-        return {k: sort_json_obj(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        sorted_list = [sort_json_obj(item) for item in obj]
-        try:
-            # If it's a list of dicts with 'name', sort by 'name'
-            if all(isinstance(i, dict) and 'name' in i for i in sorted_list):
-                return sorted(sorted_list, key=lambda x: x['name'])
-            # For lists of primitives (strings, ints), sort normally
-            return sorted(sorted_list, key=lambda x: json.dumps(x, sort_keys=True))
-        except Exception:
-            # Fallback to unsorted if elements are heterogeneous or uncomparable
-            return sorted_list
-    return obj
-
-def load_dotenv(filepath=".env"):
-    # Check current directory for .env
-    if os.path.exists(filepath):
-        with open(filepath, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#') and '=' in line:
-                    key, val = line.split('=', 1)
-                    val = val.strip().strip('\'"')
-                    if key.strip() not in os.environ:
-                        os.environ[key.strip()] = val
-
-def format_mdl(mdl_str):
-    if not mdl_str or '\n' in mdl_str.strip():
-        return mdl_str
-    
-    first_paren = mdl_str.find('(')
-    last_paren = mdl_str.rfind(')')
-    if first_paren == -1 or last_paren == -1 or first_paren >= last_paren:
-        return mdl_str
-        
-    header = mdl_str[:first_paren]
-    content = mdl_str[first_paren+1:last_paren]
-    footer = mdl_str[last_paren+1:]
-    
-    attrs = []
-    current_attr = []
-    depth = 0
-    in_quotes = False
-    quote_char = ''
-    
-    for char in content:
-        if in_quotes:
-            current_attr.append(char)
-            if char == quote_char:
-                in_quotes = False
-        else:
-            if char in ["'", '"']:
-                in_quotes = True
-                quote_char = char
-                current_attr.append(char)
-            elif char == '(':
-                depth += 1
-                current_attr.append(char)
-            elif char == ')':
-                depth -= 1
-                current_attr.append(char)
-            elif char == ',' and depth == 0:
-                attrs.append("".join(current_attr).strip())
-                current_attr = []
-            else:
-                current_attr.append(char)
-    if current_attr:
-        attrs.append("".join(current_attr).strip())
-        
-    formatted_attrs = ",\n   ".join(attrs)
-    return f"{header}(\n   {formatted_attrs}\n){footer}"
-
-
 
 def format_action_script(as_str):
     lines = as_str.splitlines()
@@ -318,3 +201,57 @@ def process_mdl_and_extract(mdl_str, metadata_json, comp_type, comp_name, base_d
     final_mdl = f"{header} (\n   {formatted_content}\n){footer}"
     return final_mdl, extracted_files
 
+if __name__ == "__main__":
+    test_mdl = '''RECREATE Actiontrigger big_order_received_purchase_order_after__c (
+   label('big order received'),
+   active(false),
+   description(),
+   object('Object.purchase_order__c'),
+   event('AFTER_INSERT'),
+   order(100),
+   Actionblock action_block1__c(
+      label('Action Block 1'),
+      active(false),
+      description(),
+      order(1),
+      code(<ActionScript>IF
+total_amount__c >= 1000000
+THEN
+SendNotification($big_order__c, UserNames("david.mills@veeva.com"));</ActionScript>)
+      )
+   );'''
+
+    test_mdl2 = '''RECREATE Agent base_document_chat_agent__sys (
+   label('Base Document Chat Agent'),
+   active(false),
+   agent_user('[agent]base_document_chat_agent__sys'),
+   Agentcontext document_text_context__sys(
+      label('Document Text Context'),
+      active(false),
+      always_include(true),
+      context_configuration({<?xml version="1.0" encoding="utf-8"?><vault:configuration xmlns:vault="VeevaVault"><vault:input name="documentContentTypes" type="JsonArray">["TEXT_EXTRACT"]</vault:input><vault:input name="useStructuredText" type="Boolean">true</vault:input></vault:configuration>}),
+      context_type('Aicontexttype.document_data_content__sys'),
+      description('This context extracts the document text with page structure.')
+      )
+   );'''
+
+    metadata2 = {
+        "data": [
+            {"name": "context_configuration", "type": "XMLString"}
+        ]
+    }
+    
+    test_mdl3 = '''RECREATE Job facility_inspection_due__c (
+   active(false),
+   Changeobjectstatejobaction ocs_action__c(
+      destination_state('facility__c.facility_lifecycle__c.2_inspection_due__c'),
+      conditions('{"lhs":"Today()","operator":">=","rhs":["Trigger date","+","0"],"expressionType":"TRIGGER_DATE_TYPE","type":"Expression"}')
+   ),
+   trigger_date([{"lhs":"facility__c.inspection_due__c","operator":"-","rhs":["0"],"expressionType":"TRIGGER_DATE_TYPE","type":"Expression"}])
+);'''
+
+    mdl3, files3 = process_mdl_and_extract(test_mdl3, {}, "Job", "facility_inspection_due__c")
+    print(mdl3)
+    print("\nFILES:")
+    for k, v in files3.items():
+        print(f"[{k}]\n{v}")

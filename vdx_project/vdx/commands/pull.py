@@ -7,7 +7,7 @@ import io
 import zipfile
 import re
 from vdx.api import make_vault_request, API_VERSION
-from vdx.utils import compute_checksum, load_state, save_state, load_ignore_patterns, is_ignored, sort_json_obj, format_mdl
+from vdx.utils import compute_checksum, load_state, save_state, load_ignore_patterns, is_ignored, sort_json_obj, process_mdl_and_extract
 def truncate_error(data):
     """
     Truncates the error message to the first 1000 characters or 50 lines 
@@ -117,57 +117,40 @@ def pull_mdl_components(state, ignore_patterns):
     pulled_types = set()
     for record in records:
         comp_type = record.get("component_type__v")
+        if comp_type:
+            pulled_types.add(comp_type)
+            
+    # Fetch metadata for each component type that was actually pulled
+    component_metadata_cache = {}
+    for comp_type in pulled_types:
+        meta_endpoint = f"/api/{API_VERSION}/metadata/components/{comp_type}"
+        meta_response = make_vault_request("GET", meta_endpoint)
+        c_meta_data = _handle_api_response(meta_response, f"Metadata for {comp_type}: ")
+        if c_meta_data:
+            component_metadata_cache[comp_type] = c_meta_data
+            file_path = os.path.join(base_dir, comp_type, f"METADATA-{comp_type}.json")
+            if not is_ignored(file_path, ignore_patterns):
+                vault_files[file_path] = True
+                meta_content = json.dumps(sort_json_obj(c_meta_data), indent=2)
+                if _update_local_file(file_path, meta_content, state):
+                    updated_count += 1
+                    
+    # Process each component record with its metadata
+    for record in records:
+        comp_type = record.get("component_type__v")
         comp_name = record.get("component_name__v")
         mdl_def = record.get("mdl_definition__v", "")
         if not comp_type or not comp_name:
             logging.warning("Skipping record with missing name or type.")
             continue
 
-        pulled_types.add(comp_type)
+        c_meta_data = component_metadata_cache.get(comp_type, {})
         
-        # 1. Extract pointers for specific attributes like page_markup in Pagelayout
-        if comp_type == "Pagelayout" and "page_markup(" in mdl_def:
-            import re
-            import xml.dom.minidom
-            
-            # Find the page_markup attribute content
-            pattern = r"page_markup\(\s*(\{.*?\}|'.*?'|\".*?\")\s*\)"
-            match = re.search(pattern, mdl_def, re.DOTALL)
-            if match:
-                markup_raw = match.group(1).strip()
-                # Clean up if it's wrapped in braces or quotes
-                markup_clean = markup_raw
-                if markup_clean.startswith('{') and markup_clean.endswith('}'):
-                    markup_clean = markup_clean[1:-1].strip()
-                elif (markup_clean.startswith("'") and markup_clean.endswith("'")) or \
-                     (markup_clean.startswith('"') and markup_clean.endswith('"')):
-                    markup_clean = markup_clean[1:-1].strip()
-                
-                # Determine extension
-                attr_name = "page_markup"
-                ext = ".xml" if "<" in markup_clean and ">" in markup_clean else ".txt"
-                # Filename: <type>.<name>.<attr><ext>
-                pointer_filename = f"{comp_type}.{comp_name}.{attr_name}{ext}"
-                
-                # Replace content with pointer in MDL
-                mdl_def = mdl_def.replace(match.group(1), f"'{pointer_filename}'")
-                
-                # Format extracted content
-                if ext == ".xml":
-                    try:
-                        parsed_xml = xml.dom.minidom.parseString(markup_clean)
-                        markup_clean = parsed_xml.toprettyxml(indent="    ")
-                        # remove empty lines added by toprettyxml
-                        markup_clean = "\n".join([line for line in markup_clean.splitlines() if line.strip()])
-                    except Exception:
-                        pass
-                
-                ext_file_path = os.path.join(base_dir, comp_type, pointer_filename)
-                vault_files[ext_file_path] = True
-                _update_local_file(ext_file_path, markup_clean, state)
-
-        # 2. Format MDL if it's all on one line
-        mdl_def = format_mdl(mdl_def)
+        mdl_def, extracted_files = process_mdl_and_extract(mdl_def, c_meta_data, comp_type, comp_name, base_dir)
+        
+        for ext_file_path, markup_clean in extracted_files.items():
+            vault_files[ext_file_path] = True
+            _update_local_file(ext_file_path, markup_clean, state)
 
         file_path = os.path.join(base_dir, comp_type, f"{comp_name}.mdl")
         if is_ignored(file_path, ignore_patterns):
@@ -176,19 +159,6 @@ def pull_mdl_components(state, ignore_patterns):
         vault_files[file_path] = True
         if _update_local_file(file_path, mdl_def, state):
             updated_count += 1
-
-    # Fetch and save metadata for each component type that was actually pulled
-    for comp_type in pulled_types:
-        meta_endpoint = f"/api/{API_VERSION}/metadata/components/{comp_type}"
-        meta_response = make_vault_request("GET", meta_endpoint)
-        meta_data = _handle_api_response(meta_response, f"Metadata for {comp_type}: ")
-        if meta_data:
-            file_path = os.path.join(base_dir, comp_type, f"METADATA-{comp_type}.json")
-            if not is_ignored(file_path, ignore_patterns):
-                vault_files[file_path] = True
-                content = json.dumps(sort_json_obj(meta_data), indent=2)
-                if _update_local_file(file_path, content, state):
-                    updated_count += 1
 
     return vault_files, updated_count
 
