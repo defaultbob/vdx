@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as util from 'util';
@@ -7,7 +7,7 @@ import * as util from 'util';
 const execPromise = util.promisify(exec);
 
 export async function activate(context: vscode.ExtensionContext) {
-    let terminal: vscode.Terminal | undefined;
+    const outputChannel = vscode.window.createOutputChannel('VDX CLI');
 
     // 1. Define paths for the isolated environment in the extension's global storage
     const storageUri = context.globalStorageUri;
@@ -50,32 +50,69 @@ export async function activate(context: vscode.ExtensionContext) {
         });
     }
 
-    // Helper to get or create a dedicated terminal for vdx
-    function getTerminal() {
-        if (!terminal || terminal.exitStatus !== undefined) {
-            terminal = vscode.window.createTerminal('VDX CLI');
+    function runVdxCommand(args: string[], title: string, interactive: boolean = false) {
+        if (interactive) {
+            // For login, we still use the terminal because it prompts for a password via getpass
+            const terminal = vscode.window.createTerminal('VDX CLI');
+            terminal.show(true);
+            const commandStr = `"${pythonCmd}" "${vdxMainPath}" ${args.join(' ')}`;
+            terminal.sendText(commandStr);
+            return;
         }
-        return terminal;
-    }
 
-    function runVdxCommand(command: string) {
-        const t = getTerminal();
-        t.show();
-        // Execute using the isolated python environment running the bundled main.py
-        t.sendText(`"${pythonCmd}" "${vdxMainPath}" ${command}`);
+        outputChannel.show(true);
+        outputChannel.appendLine(`\n> vdx ${args.join(' ')}`);
+
+        vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: `VDX: ${title}`,
+            cancellable: true
+        }, (progress, token) => {
+            return new Promise<void>((resolve, reject) => {
+                const workspaceFolders = vscode.workspace.workspaceFolders;
+                const cwd = workspaceFolders ? workspaceFolders[0].uri.fsPath : process.cwd();
+
+                const child = spawn(pythonCmd, [vdxMainPath, ...args], { cwd });
+
+                token.onCancellationRequested(() => {
+                    child.kill('SIGINT');
+                    outputChannel.appendLine('Command cancelled by user.');
+                    resolve();
+                });
+
+                child.stdout.on('data', (data) => {
+                    outputChannel.append(data.toString());
+                });
+
+                child.stderr.on('data', (data) => {
+                    outputChannel.append(data.toString());
+                });
+
+                child.on('close', (code) => {
+                    outputChannel.appendLine(`Command exited with code ${code}`);
+                    if (code === 0) {
+                        vscode.window.showInformationMessage(`VDX: ${title} completed successfully.`);
+                        resolve();
+                    } else {
+                        vscode.window.showErrorMessage(`VDX: ${title} failed. Check the output channel for details.`);
+                        resolve(); // Resolve rather than reject so the progress notification closes gracefully
+                    }
+                });
+            });
+        });
     }
 
     // Register all commands
     context.subscriptions.push(
-        vscode.commands.registerCommand('vdx.login', () => runVdxCommand('login')),
+        vscode.commands.registerCommand('vdx.login', () => runVdxCommand(['login'], 'Login', true)),
 
         vscode.commands.registerCommand('vdx.pull', async () => {
             const includeTranslations = await vscode.window.showQuickPick(['No', 'Yes'], {
                 placeHolder: 'Include translations in pull?'
             });
             if (includeTranslations === undefined) return; // User cancelled
-            const command = includeTranslations === 'Yes' ? 'pull --translations' : 'pull';
-            runVdxCommand(command);
+            const args = includeTranslations === 'Yes' ? ['pull', '--translations'] : ['pull'];
+            runVdxCommand(args, 'Pull from Vault');
         }),
 
         vscode.commands.registerCommand('vdx.push', async () => {
@@ -83,8 +120,8 @@ export async function activate(context: vscode.ExtensionContext) {
                 placeHolder: 'Include translations in push?'
             });
             if (includeTranslations === undefined) return; // User cancelled
-            const command = includeTranslations === 'Yes' ? 'push --translations' : 'push';
-            runVdxCommand(command);
+            const args = includeTranslations === 'Yes' ? ['push', '--translations'] : ['push'];
+            runVdxCommand(args, 'Push to Vault');
         }),
 
         vscode.commands.registerCommand('vdx.pushDryRun', async () => {
@@ -92,13 +129,13 @@ export async function activate(context: vscode.ExtensionContext) {
                 placeHolder: 'Include translations in push (dry-run)?'
             });
             if (includeTranslations === undefined) return; // User cancelled
-            const command = includeTranslations === 'Yes' ? 'push --dry-run --translations' : 'push --dry-run';
-            runVdxCommand(command);
+            const args = includeTranslations === 'Yes' ? ['push', '--dry-run', '--translations'] : ['push', '--dry-run'];
+            runVdxCommand(args, 'Push Dry Run');
         }),
 
-        vscode.commands.registerCommand('vdx.package', () => runVdxCommand('package')),
+        vscode.commands.registerCommand('vdx.package', () => runVdxCommand(['package'], 'Package')),
 
-        vscode.commands.registerCommand('vdx.clean', () => runVdxCommand('clean')),
+        vscode.commands.registerCommand('vdx.clean', () => runVdxCommand(['clean'], 'Clean')),
 
         vscode.commands.registerCommand('vdx.showChangesInUI', async () => {
             const workspaceFolders = vscode.workspace.workspaceFolders;

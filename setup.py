@@ -8,6 +8,7 @@ setup(
     package_dir={"": "vdx_project"},
     install_requires=[
         "requests",
+        "sqlparse",
     ],
     entry_points={
         "console_scripts": [

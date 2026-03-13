@@ -124,6 +124,56 @@ def pull_mdl_components(state, ignore_patterns):
             continue
 
         pulled_types.add(comp_type)
+        
+        # 1. Extract pointers for specific attributes like page_markup in Pagelayout
+        if comp_type == "Pagelayout" and "page_markup(" in mdl_def:
+            import re
+            import xml.dom.minidom
+            
+            # Find the page_markup attribute content
+            pattern = r"page_markup\(\s*(\{.*?\}|'.*?'|\".*?\")\s*\)"
+            match = re.search(pattern, mdl_def, re.DOTALL)
+            if match:
+                markup_raw = match.group(1).strip()
+                # Clean up if it's wrapped in braces or quotes
+                markup_clean = markup_raw
+                if markup_clean.startswith('{') and markup_clean.endswith('}'):
+                    markup_clean = markup_clean[1:-1].strip()
+                elif (markup_clean.startswith("'") and markup_clean.endswith("'")) or \
+                     (markup_clean.startswith('"') and markup_clean.endswith('"')):
+                    markup_clean = markup_clean[1:-1].strip()
+                
+                # Determine extension
+                attr_name = "page_markup"
+                ext = ".xml" if "<" in markup_clean and ">" in markup_clean else ".txt"
+                # Filename: <type>.<name>.<attr><ext>
+                pointer_filename = f"{comp_type}.{comp_name}.{attr_name}{ext}"
+                
+                # Replace content with pointer in MDL
+                mdl_def = mdl_def.replace(match.group(1), f"'{pointer_filename}'")
+                
+                # Format extracted content
+                if ext == ".xml":
+                    try:
+                        parsed_xml = xml.dom.minidom.parseString(markup_clean)
+                        markup_clean = parsed_xml.toprettyxml(indent="    ")
+                        # remove empty lines added by toprettyxml
+                        markup_clean = "\n".join([line for line in markup_clean.splitlines() if line.strip()])
+                    except Exception:
+                        pass
+                
+                ext_file_path = os.path.join(base_dir, comp_type, pointer_filename)
+                vault_files[ext_file_path] = True
+                _update_local_file(ext_file_path, markup_clean, state)
+
+        # 2. Format MDL if it's all on one line
+        if mdl_def and "\n" not in mdl_def.strip():
+            try:
+                import sqlparse
+                mdl_def = sqlparse.format(mdl_def, reindent=True, keyword_case='upper')
+            except ImportError:
+                pass
+
         file_path = os.path.join(base_dir, comp_type, f"{comp_name}.mdl")
         if is_ignored(file_path, ignore_patterns):
             continue

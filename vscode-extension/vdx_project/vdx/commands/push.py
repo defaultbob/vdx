@@ -58,6 +58,23 @@ def push_mdl_changes(changes, deletions, dry_run=False):
     for path in changes:
         with open(path, 'r', encoding='utf-8') as f:
             content = f.read()
+
+        # Resolve pointers (e.g., page_markup references)
+        import re
+        # Look for single-quoted filenames that match the pointer pattern we created in pull.py
+        # We look specifically for 'comp_type.comp_name.attr_name.ext'
+        pointers = re.findall(r"page_markup\(\s*'([^']+)'\s*\)", content)
+        for pointer in pointers:
+            pointer_path = os.path.join(os.path.dirname(path), pointer)
+            if os.path.exists(pointer_path):
+                with open(pointer_path, 'r', encoding='utf-8') as pf:
+                    pointer_content = pf.read().strip()
+                # Wrap back in braces for MDL if it looks like XML content
+                # Vault page_markup expects { <vault:pages>... }
+                if pointer_content.startswith('<'):
+                    pointer_content = f"{{ {pointer_content} }}"
+                content = content.replace(f"'{pointer}'", pointer_content)
+
         mdl_script += f"CREATE OR UPDATE COMPONENT \n{content}\n;\n"
 
     for path in deletions:
