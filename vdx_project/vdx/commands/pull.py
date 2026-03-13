@@ -114,6 +114,7 @@ def pull_mdl_components(state, ignore_patterns):
         records.extend(current_data.get("data", []))
 
     base_dir = "components"
+    pulled_types = set()
     for record in records:
         comp_type = record.get("component_type__v")
         comp_name = record.get("component_name__v")
@@ -122,6 +123,7 @@ def pull_mdl_components(state, ignore_patterns):
             logging.warning("Skipping record with missing name or type.")
             continue
 
+        pulled_types.add(comp_type)
         file_path = os.path.join(base_dir, comp_type, f"{comp_name}.mdl")
         if is_ignored(file_path, ignore_patterns):
             continue
@@ -129,6 +131,19 @@ def pull_mdl_components(state, ignore_patterns):
         vault_files[file_path] = True
         if _update_local_file(file_path, mdl_def, state):
             updated_count += 1
+
+    # Fetch and save metadata for each component type that was actually pulled
+    for comp_type in pulled_types:
+        meta_endpoint = f"/api/{API_VERSION}/metadata/components/{comp_type}"
+        meta_response = make_vault_request("GET", meta_endpoint)
+        meta_data = _handle_api_response(meta_response, f"Metadata for {comp_type}: ")
+        if meta_data:
+            file_path = os.path.join(base_dir, comp_type, f"METADATA-{comp_type}.json")
+            if not is_ignored(file_path, ignore_patterns):
+                vault_files[file_path] = True
+                content = json.dumps(meta_data, indent=2)
+                if _update_local_file(file_path, content, state):
+                    updated_count += 1
 
     return vault_files, updated_count
 

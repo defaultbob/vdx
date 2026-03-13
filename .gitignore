@@ -17,3 +17,4 @@ vscode-extension/out/
 *.vsix
 vdx_patch_debug.log
 dist/
+PROGRESS.md
