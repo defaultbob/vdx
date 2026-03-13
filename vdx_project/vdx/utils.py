@@ -37,6 +37,27 @@ def save_state(state):
     with open(STATE_FILE, 'w') as f:
         json.dump(state, f, indent=4)
 
+def sort_json_obj(obj):
+    """
+    Recursively sorts JSON objects to ensure deterministic output for version control.
+    Dictionaries are sorted by their keys (when dumped with sort_keys=True).
+    Lists of primitives or dictionaries with 'name' are sorted accordingly.
+    """
+    if isinstance(obj, dict):
+        return {k: sort_json_obj(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        sorted_list = [sort_json_obj(item) for item in obj]
+        try:
+            # If it's a list of dicts with 'name', sort by 'name'
+            if all(isinstance(i, dict) and 'name' in i for i in sorted_list):
+                return sorted(sorted_list, key=lambda x: x['name'])
+            # For lists of primitives (strings, ints), sort normally
+            return sorted(sorted_list, key=lambda x: json.dumps(x, sort_keys=True))
+        except Exception:
+            # Fallback to unsorted if elements are heterogeneous or uncomparable
+            return sorted_list
+    return obj
+
 def load_dotenv(filepath=".env"):
     # Check current directory for .env
     if os.path.exists(filepath):

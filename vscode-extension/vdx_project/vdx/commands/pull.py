@@ -7,7 +7,7 @@ import io
 import zipfile
 import re
 from vdx.api import make_vault_request, API_VERSION
-from vdx.utils import compute_checksum, load_state, save_state, load_ignore_patterns, is_ignored
+from vdx.utils import compute_checksum, load_state, save_state, load_ignore_patterns, is_ignored, sort_json_obj
 def truncate_error(data):
     """
     Truncates the error message to the first 1000 characters or 50 lines 
@@ -141,7 +141,7 @@ def pull_mdl_components(state, ignore_patterns):
             file_path = os.path.join(base_dir, comp_type, f"METADATA-{comp_type}.json")
             if not is_ignored(file_path, ignore_patterns):
                 vault_files[file_path] = True
-                content = json.dumps(meta_data, indent=2)
+                content = json.dumps(sort_json_obj(meta_data), indent=2)
                 if _update_local_file(file_path, content, state):
                     updated_count += 1
 
