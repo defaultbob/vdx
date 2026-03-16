@@ -58,7 +58,7 @@ def push_mdl_changes(changes, deletions, dry_run=False):
         return len(components_to_push) + len(components_to_drop)
 
     endpoint = f"/api/mdl/execute"
-    response = make_vault_request("POST", endpoint, data=mdl_script, headers={'Content-Type': 'text/plain'})
+    response = make_vault_request("POST", endpoint, data=mdl_script.encode('utf-8'), headers={'Content-Type': 'application/json', 'Accept': 'application/json'})
     _handle_push_response(response, "MDL Push: ")
     return len(components_to_push) + len(components_to_drop)
 
@@ -83,8 +83,10 @@ def push_java_sdk_changes(changes, deletions, dry_run=False):
             updated_count += 1
             continue
 
-        endpoint = f"/api/{API_VERSION}/code/{class_name}"
-        response = make_vault_request("PUT", endpoint, data=content.encode('utf-8'), headers={'Content-Type': 'text/plain;charset=UTF-8'})
+        endpoint = f"/api/{API_VERSION}/code"
+        with open(path, 'rb') as f:
+            files = {'file': (os.path.basename(path), f, 'text/plain')}
+            response = make_vault_request("PUT", endpoint, files=files)
         if _handle_push_response(response, f"Push {class_name}: "):
             updated_count += 1
     return updated_count
@@ -150,10 +152,10 @@ def push_translation_changes(changes, dry_run=False):
             updated_count += 1
             continue
 
-        endpoint = f"/api/{API_VERSION}/messages/actions/import"
-        data = {'message_type': msg_type, 'language': lang}
+        endpoint = f"/api/{API_VERSION}/messages/{msg_type}/actions/import"
+        data = {'language': lang}
         with open(path, 'rb') as f:
-            files = {'file': (os.path.basename(path), f.read(), 'text/csv')}
+            files = {'file': (os.path.basename(path), f, 'text/csv')}
             response = make_vault_request("POST", endpoint, data=data, files=files)
             if _handle_push_response(response, f"Push {path}: "):
                 updated_count += 1
