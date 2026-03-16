@@ -36,7 +36,7 @@ When parsing and formatting raw or single-line MDL strings (e.g., within `vdx.ut
 
 ## Attribute Extraction & Overrides
 
-Certain attributes contain complex structures (XML, JSON, HTML, ActionScript) that must be extracted to separate files to ensure proper version control and developer experience. The `vdx.utils.process_mdl_and_extract` parser handles this dynamically by reading the `METADATA-*.json` definition for the component and applying specific overrides.
+Certain attributes contain complex structures (XML, JSON, HTML, ActionScript) that must be extracted to separate files to ensure proper version control and developer experience. The `vdx.utils.process_mdl_and_extract` parser handles this dynamically by reading the `metadata.json` definition for the component and applying specific overrides.
 
 ### 1. Native Metadata Types
 - Any attribute defined with `type: "XMLString"` in the Vault metadata is extracted to a `.xml` file. The parser strips any `<?xml ... ?>` encoding declarations.
@@ -45,23 +45,25 @@ Certain attributes contain complex structures (XML, JSON, HTML, ActionScript) th
 ### 2. Known Type Overrides
 Some attributes are defined as generic `String` in the metadata but actually contain structured formats. The parser forcefully overrides these:
 
-**HTML Overrides (Extracted to `.html`)**
+**Include Overrides (Extracted to `.inc`)**
 - `email_body`
 - `notification`
 - `subject`
 - `help_content`
 
 **JSON Overrides (Extracted to `.json`)**
-- `context_configuration`
 - `conditions`
 - `trigger_date`
-- `layout_markup`
-- `properties`
-- `step_detail`
-- `configuration`
 
-### 3. ActionScript Processing
+### 3. File Reference Syntax
+When an attribute is extracted to an external file, its value in the `.mdl` file is replaced by a pointer following this syntax:
+`attribute_name(@filename.ext)`
+
+Example: `page_markup(@markup.xml)`
+
+### 4. ActionScript Processing
 If an attribute's value contains the `<ActionScript>` tag, it is extracted to a `.as` file.
 - The `<ActionScript>` and `</ActionScript>` tags are removed.
 - Line endings are preserved.
 - All lines are indented with 4 spaces, EXCEPT the keywords `IF`, `THEN`, and `ELSE`, which must remain unindented (flush left).
+- Nested curly braces `{ ... }` trigger an additional level of indentation (4 spaces) for the contained block. The closing brace `}` is flush with the opening block's indentation level.

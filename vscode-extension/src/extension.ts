@@ -107,11 +107,54 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('vdx.login', () => runVdxCommand(['login'], 'Login', true)),
 
         vscode.commands.registerCommand('vdx.pull', async () => {
+            const workspaceFolders = vscode.workspace.workspaceFolders;
+            if (!workspaceFolders) {
+                vscode.window.showErrorMessage("No workspace folder open.");
+                return;
+            }
+            const workspaceRoot = workspaceFolders[0].uri.fsPath;
+            const stateFile = path.join(workspaceRoot, '.vdx_state.json');
+            
+            let pullMode = 'advanced';
+            let needsModePrompt = true;
+
+            if (fs.existsSync(stateFile)) {
+                try {
+                    const stateData = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+                    if (stateData.__pull_mode__) {
+                        pullMode = stateData.__pull_mode__;
+                        needsModePrompt = false;
+                    }
+                } catch (e) {
+                    // JSON parse error, ignore and prompt
+                }
+            }
+
+            if (needsModePrompt) {
+                const modeSelection = await vscode.window.showQuickPick([
+                    { label: 'Advanced', description: 'Extract subcomponents and nested JSON/XML into folders (Recommended)' },
+                    { label: 'Simple', description: 'Standard MDL files without subcomponent extraction' }
+                ], {
+                    placeHolder: 'Select Pull Structure Mode (this will be saved for future pulls)'
+                });
+
+                if (!modeSelection) return; // User cancelled
+                pullMode = modeSelection.label.toLowerCase();
+            }
+
             const includeTranslations = await vscode.window.showQuickPick(['No', 'Yes'], {
-                placeHolder: 'Include translations in pull?'
+                placeHolder: 'Include translations in pull? (Default: No)'
             });
             if (includeTranslations === undefined) return; // User cancelled
-            const args = includeTranslations === 'Yes' ? ['pull', '--translations'] : ['pull'];
+
+            const args = ['pull'];
+            if (pullMode === 'simple') {
+                args.push('--simple');
+            }
+            if (includeTranslations === 'Yes') {
+                args.push('--translations');
+            }
+            
             runVdxCommand(args, 'Pull from Vault');
         }),
 
@@ -135,7 +178,16 @@ export async function activate(context: vscode.ExtensionContext) {
 
         vscode.commands.registerCommand('vdx.package', () => runVdxCommand(['package'], 'Package')),
 
-        vscode.commands.registerCommand('vdx.clean', () => runVdxCommand(['clean'], 'Clean')),
+        vscode.commands.registerCommand('vdx.cleanCache', () => runVdxCommand(['clean-cache'], 'Clean Cache Only')),
+
+        vscode.commands.registerCommand('vdx.cleanFiles', async () => {
+            const includeTranslations = await vscode.window.showQuickPick(['No', 'Yes'], {
+                placeHolder: 'Include translations in deletion? (Default: No)'
+            });
+            if (includeTranslations === undefined) return;
+            const args = includeTranslations === 'Yes' ? ['clean-files', '--include-translations'] : ['clean-files'];
+            runVdxCommand(args, 'Clean All Files');
+        }),
 
         vscode.commands.registerCommand('vdx.showChangesInUI', async () => {
             const workspaceFolders = vscode.workspace.workspaceFolders;

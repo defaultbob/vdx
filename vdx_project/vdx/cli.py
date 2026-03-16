@@ -4,7 +4,7 @@ from vdx.auth import login
 from vdx.commands.pull import run_pull
 from vdx.commands.push import run_push
 from vdx.commands.package import run_package
-from vdx.commands.clean import run_clean
+from vdx.commands.clean import run_clean_cache, run_clean_files
 from vdx.commands.patch import run_patch
 from vdx.utils import load_dotenv
 
@@ -26,6 +26,7 @@ def main():
     pull_parser = subparsers.add_parser("pull", help="Pull all component types from Vault (MDL, SDK, Pages, etc.)")
     pull_parser.add_argument("--verbose", action="store_true", help=argparse.SUPPRESS)
     pull_parser.add_argument("--translations", action="store_true", help="Include bulk translations in the pull operation.")
+    pull_parser.add_argument("--simple", action="store_true", help="Pull components as monolithic MDL files (Simple Mode).")
     
     push_parser = subparsers.add_parser("push", help="Push local changes to Vault (MDL, SDK, Pages, etc.)")
     push_parser.add_argument("--dry-run", action="store_true", help="Print changes without modifying")
@@ -35,8 +36,12 @@ def main():
     package_parser = subparsers.add_parser("package", help="Create, import, and validate a VPK")
     package_parser.add_argument("--verbose", action="store_true", help=argparse.SUPPRESS)
     
-    clean_parser = subparsers.add_parser("clean", help="Remove local cache files (.vdx_config, .vdx_state.json)")
-    clean_parser.add_argument("--verbose", action="store_true", help=argparse.SUPPRESS)
+    clean_cache_parser = subparsers.add_parser("clean-cache", help="Remove local cache files (.vdx_config, .vdx_state.json)")
+    clean_cache_parser.add_argument("--verbose", action="store_true", help=argparse.SUPPRESS)
+
+    clean_files_parser = subparsers.add_parser("clean-files", help="Remove all pulled component and source files")
+    clean_files_parser.add_argument("--include-translations", action="store_true", help="Also delete the translations folder")
+    clean_files_parser.add_argument("--verbose", action="store_true", help=argparse.SUPPRESS)
 
     patch_parser = subparsers.add_parser("patch", help="Generate a patch file of local changes")
     patch_parser.add_argument("--verbose", action="store_true", help=argparse.SUPPRESS)
@@ -57,5 +62,7 @@ def main():
         run_package(args)
     elif args.command == "patch":
         run_patch(args)
-    elif args.command == "clean":
-        run_clean(args)
+    elif args.command == "clean-cache":
+        run_clean_cache(args)
+    elif args.command == "clean-files":
+        run_clean_files(args)

@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 import json
 from vdx.api import make_vault_request, API_VERSION
-from vdx.utils import compute_checksum, load_state
+from vdx.utils import compute_checksum, load_state, reassemble_component
 
 def poll_job_status(job_id, job_type="job"):
     """
@@ -82,23 +82,33 @@ def run_package(args):
     state = load_state()
     logging.info("Analyzing local components for changes...")
     
-    modified_files = []
+    components_to_package = set()
     for root, dirs, files in os.walk(base_dir):
         for file in files:
-            if file.endswith(".mdl"):
+            # Check all source files
+            if file.endswith(".mdl") or file.endswith(".xml") or file.endswith(".json") or file.endswith(".html") or file.endswith(".as"):
                 file_path = os.path.join(root, file)
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                
-                current_checksum = compute_checksum(content)
-                if state.get(file_path) != current_checksum:
-                    modified_files.append((file_path, content, current_checksum))
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    current_checksum = compute_checksum(content)
+                    if state.get(file_path) != current_checksum:
+                        parts = Path(file_path).parts
+                        if len(parts) >= 3:
+                            comp_type = parts[1]
+                            comp_name = parts[2]
+                            if comp_name.endswith('.mdl'):
+                                comp_name = comp_name[:-4]
+                            components_to_package.add((comp_type, comp_name))
+                except Exception as e:
+                    logging.warning(f"Error reading file {file_path}: {e}")
 
-    if not modified_files:
+    if not components_to_package:
         logging.info("No modified components found. Package creation skipped.")
         sys.exit(0)
 
-    logging.info(f"Packaging {len(modified_files)} modified components into {vpk_filename}...")
+    logging.info(f"Packaging {len(components_to_package)} modified components into {vpk_filename}...")
     
     with zipfile.ZipFile(vpk_filename, 'w', zipfile.ZIP_DEFLATED) as vpk:
         with open(template_path, 'r', encoding='utf-8') as tf:
@@ -107,21 +117,20 @@ def run_package(args):
         manifest = manifest_template.format(
             package_name="vdx_deployment",
             author="vdx_tool",
-            summary=f"Automated VPK containing {len(modified_files)} changes",
+            summary=f"Automated VPK containing {len(components_to_package)} changes",
             description="Custom VPK generated from local source control"
         )
         vpk.writestr("vaultpackage.xml", manifest)
         
         step_num = 10
-        for file_path, mdl_content, md5_hash in modified_files:
-            path_parts = Path(file_path).parts
-            comp_type = path_parts[-2]
-            comp_name = path_parts[-1].replace(".mdl", "")
-            
-            step_folder = f"{step_num:06d}"
-            vpk.writestr(f"components/{step_folder}/{comp_type}.{comp_name}.mdl", mdl_content)
-            vpk.writestr(f"components/{step_folder}/{comp_type}.{comp_name}.md5", f"{md5_hash} {comp_type}.{comp_name}")
-            step_num += 10
+        for comp_type, comp_name in components_to_package:
+            reassembled_mdl = reassemble_component(base_dir, comp_type, comp_name)
+            if reassembled_mdl:
+                md5_hash = compute_checksum(reassembled_mdl)
+                step_folder = f"{step_num:06d}"
+                vpk.writestr(f"components/{step_folder}/{comp_type}.{comp_name}.mdl", reassembled_mdl)
+                vpk.writestr(f"components/{step_folder}/{comp_type}.{comp_name}.md5", f"{md5_hash} {comp_type}.{comp_name}")
+                step_num += 10
                     
     logging.info(f"Successfully created custom package {vpk_filename}.")
     logging.info("Importing VPK to Vault...")

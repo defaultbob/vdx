@@ -72,23 +72,28 @@ def _update_local_file(file_path, content, state, is_binary=False):
         return True
     return False
 
-def pull_mdl_components(state, ignore_patterns):
+def pull_mdl_components(state, ignore_patterns, advanced_mode=False):
     """Pulls MDL for 'metadata' class components."""
-    logging.info("Pulling MDL components...")
+    logging.info(f"Pulling MDL components (Mode: {'Advanced' if advanced_mode else 'Simple'})...")
     vault_files = {}
     updated_count = 0
 
-    # 1. Get component types for 'metadata' class
-    logging.debug("Fetching component metadata to identify 'metadata' class types...")
+    # 1. Get component types and their classes
+    logging.debug("Fetching component metadata to identify component classes...")
     meta_endpoint = f"/api/{API_VERSION}/metadata/components"
     meta_response = make_vault_request("GET", meta_endpoint)
     meta_data = _handle_api_response(meta_response, "Component Metadata: ")
     if not meta_data:
         return {}, 0
     
+    comp_class_map = {
+        comp["name"]: comp.get("class") 
+        for comp in meta_data.get("data", [])
+    }
+    
     metadata_types = [
-        comp["name"] for comp in meta_data.get("data", []) 
-        if comp.get("class") == "metadata"
+        name for name, cls in comp_class_map.items() 
+        if cls == "metadata"
     ]
     
     if not metadata_types:
@@ -128,7 +133,8 @@ def pull_mdl_components(state, ignore_patterns):
         c_meta_data = _handle_api_response(meta_response, f"Metadata for {comp_type}: ")
         if c_meta_data:
             component_metadata_cache[comp_type] = c_meta_data
-            file_path = os.path.join(base_dir, comp_type, f"METADATA-{comp_type}.json")
+            # In both modes we put metadata in the new components/Type/metadata.json location per standard
+            file_path = os.path.join(base_dir, comp_type, "metadata.json")
             if not is_ignored(file_path, ignore_patterns):
                 vault_files[file_path] = True
                 meta_content = json.dumps(sort_json_obj(c_meta_data), indent=2)
@@ -144,21 +150,25 @@ def pull_mdl_components(state, ignore_patterns):
             logging.warning("Skipping record with missing name or type.")
             continue
 
-        c_meta_data = component_metadata_cache.get(comp_type, {})
-        
-        mdl_def, extracted_files = process_mdl_and_extract(mdl_def, c_meta_data, comp_type, comp_name, base_dir)
-        
-        for ext_file_path, markup_clean in extracted_files.items():
-            vault_files[ext_file_path] = True
-            _update_local_file(ext_file_path, markup_clean, state)
-
-        file_path = os.path.join(base_dir, comp_type, f"{comp_name}.mdl")
-        if is_ignored(file_path, ignore_patterns):
-            continue
-
-        vault_files[file_path] = True
-        if _update_local_file(file_path, mdl_def, state):
-            updated_count += 1
+        if advanced_mode:
+            c_meta_data = component_metadata_cache.get(comp_type, {})
+            extracted_files = process_mdl_and_extract(mdl_def, c_meta_data, comp_type, comp_name, base_dir, comp_class_map)
+            for ext_file_path, content in extracted_files.items():
+                if is_ignored(ext_file_path, ignore_patterns):
+                    continue
+                vault_files[ext_file_path] = True
+                if _update_local_file(ext_file_path, content, state):
+                    updated_count += 1
+        else:
+            # Simple Mode: just format the MDL and put it in components/Type/Name/Name.mdl
+            from vdx.utils import format_mdl
+            formatted_mdl = format_mdl(mdl_def)
+            file_path = os.path.join(base_dir, comp_type, comp_name, f"{comp_name}.mdl")
+            if is_ignored(file_path, ignore_patterns):
+                continue
+            vault_files[file_path] = True
+            if _update_local_file(file_path, formatted_mdl, state):
+                updated_count += 1
 
     return vault_files, updated_count
 
@@ -345,11 +355,21 @@ def pull_dependencies(state, ignore_patterns):
         tgt_sub_type = record.get("target_sub_type__sys")
         tgt_sub_name = record.get("target_sub_name__sys")
 
-        dep_str = f"depends_on: {tgt_type}.{tgt_name} [blocking={is_blocking}]"
+        def format_ref(ctype, cname):
+            if cname.startswith("com.veeva.vault.custom."):
+                package_path = cname.rsplit('.', 1)[0].replace('.', '/')
+                return f"javasdk/{package_path}/{cname}.java"
+            if ctype == "Clientdistribution":
+                return f"custom_pages/{cname}"
+            return f"{ctype}.{cname}"
+
+        formatted_tgt = format_ref(tgt_type, tgt_name)
+        dep_str = f"depends_on: {formatted_tgt} [blocking={is_blocking}]"
         if tgt_sub_type and tgt_sub_name:
             dep_str += f" [target_sub={tgt_sub_type}.{tgt_sub_name}]"
 
-        used_str = f"used_by: {src_type}.{src_name} [blocking={is_blocking}]"
+        formatted_src = format_ref(src_type, src_name)
+        used_str = f"used_by: {formatted_src} [blocking={is_blocking}]"
         if tgt_sub_type and tgt_sub_name:
             used_str += f" [target_sub={tgt_sub_type}.{tgt_sub_name}]"
 
@@ -357,8 +377,19 @@ def pull_dependencies(state, ignore_patterns):
         relationships[(tgt_type, tgt_name)]["used_by"].append(used_str)
 
     for (comp_type, comp_name), rels in relationships.items():
-        file_path = os.path.join(base_dir, comp_type, f"{comp_name}.d")
+        if comp_name.startswith("com.veeva.vault.custom."):
+            package_path = comp_name.rsplit('.', 1)[0].replace('.', os.path.sep)
+            file_path = os.path.join("javasdk", package_path, f"{comp_name}.d")
+        elif comp_type == "Clientdistribution":
+            file_path = os.path.join("custom_pages", comp_name, f"{comp_name}.d")
+        else:
+            file_path = os.path.join("components", comp_type, comp_name, f"{comp_name}.d")
+
         if is_ignored(file_path, ignore_patterns):
+            continue
+            
+        # Ensure we only create .d files if the component itself was pulled
+        if not os.path.exists(os.path.dirname(file_path)):
             continue
 
         # Deduplicate and sort
@@ -505,7 +536,12 @@ def run_pull(args):
 
     for pull_func in pull_functions:
         try:
-            vault_files, updated_count = pull_func(state, ignore_patterns)
+            if pull_func == pull_mdl_components:
+                # Advanced mode is now the default unless --simple is specified
+                advanced_mode = not getattr(args, 'simple', False)
+                vault_files, updated_count = pull_func(state, ignore_patterns, advanced_mode)
+            else:
+                vault_files, updated_count = pull_func(state, ignore_patterns)
             all_vault_files.update(vault_files)
             total_updated += updated_count
         except Exception as e:
@@ -513,7 +549,7 @@ def run_pull(args):
             logging.debug("Traceback:", exc_info=True)
 
     for tracked_file in list(state.keys()):
-        if tracked_file not in all_vault_files:
+        if tracked_file not in all_vault_files and tracked_file not in ["__vdx_version__", "__pull_mode__"]:
             if os.path.exists(tracked_file):
                 try:
                     os.remove(tracked_file)
@@ -522,6 +558,9 @@ def run_pull(args):
                 except OSError as e:
                     logging.error(f"Error removing file {tracked_file}: {e}")
             del state[tracked_file]
+            
+    # Save the current mode preference
+    state["__pull_mode__"] = "simple" if getattr(args, 'simple', False) else "advanced"
             
     save_state(state)
     logging.info(f"Pull complete. {total_updated} files updated, {deleted_count} files removed.")

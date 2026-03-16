@@ -4,94 +4,63 @@ import zipfile
 import io
 from pathlib import Path
 import json
-from vdx.utils import load_state, save_state, compute_checksum, is_ignored, load_ignore_patterns
-from vdx.api import make_vault_request, API_VERSION
-
-def _handle_push_response(response, context=""):
-    """
-    Centralized handler for push API responses.
-    """
-    # The make_vault_request function already logs the full body on any API failure.
-    # This function's job is to interpret the success/failure of a push operation.
-
-    # MDL execute has a different success payload
-    if "mdl/execute" in response.url:
-        try:
-            data = response.json()
-            if data.get('responseStatus') == 'SUCCESS':
-                logging.info(f"{context}MDL script executed successfully.")
-                return True
-            else:
-                logging.error(f"{context}MDL script execution failed.")
-                return False
-        except json.JSONDecodeError:
-            logging.error(f"{context}Failed to parse MDL response as JSON.")
-            logging.debug(f"[API DEBUG] Raw Response Body:\n{response.text}")
-            logging.debug("[API DEBUG] Expected a JSON object with a 'responseStatus' key.")
-            return False
-
-    # All other modern APIs use this pattern
-    try:
-        # Some successful responses (like DELETE) might have no body.
-        if response.status_code == 200 and not response.content:
-            logging.info(f"{context}Push successful (no response body).")
-            return True
-        data = response.json()
-        if data.get("responseStatus") == "SUCCESS":
-            logging.info(f"{context}Push successful.")
-            return True
-        else:
-            logging.error(f"{context}Push operation reported a failure.")
-            return False
-    except json.JSONDecodeError:
-        logging.error(f"{context}Failed to parse push response as JSON.")
-        logging.debug(f"[API DEBUG] Raw Response Body:\n{response.text}")
-        logging.debug("[API DEBUG] Expected a JSON object with a 'responseStatus' key.")
-        return False
+from vdx.utils import load_state, save_state, compute_checksum, is_ignored, load_ignore_patterns, reassemble_component
 
 def push_mdl_changes(changes, deletions, dry_run=False):
     if not changes and not deletions:
         return 0
 
-    logging.info(f"Processing {len(changes)} MDL update(s) and {len(deletions)} deletion(s)...")
+    logging.info(f"Processing {len(changes)} MDL file update(s) and {len(deletions)} deletion(s)...")
     mdl_script = ""
+    
+    # Identify unique root components that need to be reassembled and pushed
+    components_to_push = set()
     for path in changes:
-        with open(path, 'r', encoding='utf-8') as f:
-            content = f.read()
+        parts = Path(path).parts
+        if len(parts) >= 3:
+            comp_type = parts[1]
+            comp_name = parts[2]
+            # Handle simple mode where parts[2] is a file e.g. components/Type/Name.mdl
+            if comp_name.endswith('.mdl'):
+                comp_name = comp_name[:-4]
+            components_to_push.add((comp_type, comp_name))
+            
+    for comp_type, comp_name in components_to_push:
+        reassembled_mdl = reassemble_component("components", comp_type, comp_name)
+        if reassembled_mdl:
+            mdl_script += f"CREATE OR UPDATE COMPONENT \n{reassembled_mdl}\n;\n"
 
-        # Resolve pointers (e.g., page_markup references)
-        import re
-        # Look for single-quoted filenames that match the pointer pattern we created in pull.py
-        # We look specifically for 'comp_type.comp_name.attr_name.ext'
-        pointers = re.findall(r"page_markup\(\s*'([^']+)'\s*\)", content)
-        for pointer in pointers:
-            pointer_path = os.path.join(os.path.dirname(path), pointer)
-            if os.path.exists(pointer_path):
-                with open(pointer_path, 'r', encoding='utf-8') as pf:
-                    pointer_content = pf.read().strip()
-                # Wrap back in braces for MDL if it looks like XML content
-                # Vault page_markup expects { <vault:pages>... }
-                if pointer_content.startswith('<'):
-                    pointer_content = f"{{ {pointer_content} }}"
-                content = content.replace(f"'{pointer}'", pointer_content)
-
-        mdl_script += f"CREATE OR UPDATE COMPONENT \n{content}\n;\n"
-
+    # Identify unique root components to drop
+    components_to_drop = set()
     for path in deletions:
         parts = Path(path).parts
-        comp_type = parts[-2]
-        comp_name = Path(parts[-1]).stem
-        mdl_script += f"DROP COMPONENT {comp_type}.\"{comp_name}\";\n"
+        if len(parts) >= 3:
+            comp_type = parts[1]
+            comp_name = parts[2]
+            if comp_name.endswith('.mdl'):
+                comp_name = comp_name[:-4]
+            components_to_drop.add((comp_type, comp_name))
+            
+    for comp_type, comp_name in components_to_drop:
+        # Only drop if the root component directory no longer exists
+        comp_dir = os.path.join("components", comp_type, comp_name)
+        simple_file = os.path.join("components", comp_type, f"{comp_name}.mdl")
+        if not os.path.exists(comp_dir) and not os.path.exists(simple_file):
+            mdl_script += f"DROP COMPONENT {comp_type}.\"{comp_name}\";\n"
+
+    if not mdl_script.strip():
+        logging.info("No actionable top-level MDL changes detected after grouping.")
+        return 0
 
     if dry_run:
         logging.info("[DRY RUN] MDL script to be executed:")
         print(mdl_script)
-        return len(changes) + len(deletions)
+        return len(components_to_push) + len(components_to_drop)
 
-    endpoint = f"/api/{API_VERSION}/mdl/execute"
+    endpoint = f"/api/mdl/execute"
     response = make_vault_request("POST", endpoint, data=mdl_script, headers={'Content-Type': 'text/plain'})
     _handle_push_response(response, "MDL Push: ")
-    return len(changes) + len(deletions)
+    return len(components_to_push) + len(components_to_drop)
 
 def push_java_sdk_changes(changes, deletions, dry_run=False):
     if deletions:

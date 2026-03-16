@@ -2,7 +2,7 @@
     "name": "vdx-vscode",
     "displayName": "Vault Developer eXperience",
     "description": "VS Code integration for the vdx CLI tool",
-    "version": "0.4.15",
+    "version": "0.4.25",
     "repository": {
         "type": "git",
         "url": "https://github.com/davidmills/vdx"
@@ -39,8 +39,12 @@
                 "title": "VDX: Create and Validate Package"
             },
             {
-                "command": "vdx.clean",
-                "title": "VDX: Clean Local Cache"
+                "command": "vdx.cleanCache",
+                "title": "VDX: Clean Cache Only"
+            },
+            {
+                "command": "vdx.cleanFiles",
+                "title": "VDX: Clean All Files (and Cache)"
             },
             {
                 "command": "vdx.showChangesInUI",

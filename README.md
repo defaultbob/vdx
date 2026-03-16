@@ -5,12 +5,14 @@
 ## **✨ Features**
 
 - **Metadata Filtering**: Intelligently pulls only components of the `metadata` class, ensuring your repository stays focused on configuration rather than data records.
-- **Specialized Querying**: Uses the specialized `/query/components` endpoint to retrieve exact MDL definitions directly from the Vault component registry.
-- **Source Control Syncing**: Organizes discrete `.mdl` files by component type (e.g., `components/DocumentType/vdx_test__c.mdl`).
-- **Smart Deployments**: Push only modified or new components. vdx uses MD5 checksums and a local state tracker to minimize API calls.
+- **Structural Parsing**: Automatically splits monolithic parent components (like Objects) into discrete, nested subcomponent files (like Fields) for cleaner version control.
+- **Dynamic Attribute Extraction**: Intelligently detects and extracts complex attribute strings (XML, JSON, HTML, ActionScript) into their own properly formatted files (`.xml`, `.json`, `.html`, `.as`).
+- **Source Control Syncing**: Organizes discrete `.mdl` files by component type and name (e.g., `components/Object/my_object__c/my_object__c.mdl`).
+- **Smart Deployments**: Push only modified or new components. `vdx` uses MD5 checksums and a local state tracker to minimize API calls.
 - **Bidirectional Deletions**: If a component is removed from Vault, `vdx pull` removes the local file. If you delete a local file, `vdx push` executes a `DROP` command in Vault.
 - **VPK Packaging**: Bundle local changes into a standard Custom Configuration Migration Package (VPK) and automatically trigger a non-destructive validation job.
-- **Auto-Session Renewal**: Automatically generates a new session ID if it encounters an `INVALID_SESSION_ID` error during long-running operations.
+- **Auto-Login & Session Renewal**: Seamlessly authenticates using `.env` credentials if a session is missing, and automatically generates a new session ID if it encounters an `INVALID_SESSION_ID` error during long-running operations.
+- **Auto-Cache Invalidation**: Automatically clears the local `.vdx_state.json` cache and forces a clean pull whenever the CLI is upgraded to a new version.
 
 ## **🛠 Prerequisites**
 
@@ -95,10 +97,14 @@ vdx login
 
 ### `vdx pull`
 
-Queries Vault for all components of class `metadata` and downloads their MDL definitions.
+Queries Vault for all components of class `metadata` and downloads their MDL definitions. By default, `vdx` uses **Advanced Mode**, extracting subcomponents and nested structures into folders.
 
 ```bash
 vdx pull
+# Use simple mode for monolithic MDL files
+vdx pull --simple
+# Include translations
+vdx pull --translations
 ```
 
 - Automatically handles API pagination.
@@ -123,6 +129,24 @@ Generates a VPK, uploads it to Vault, and triggers validation.
 vdx package
 ```
 
+### `vdx clean-cache`
+
+Removes the local session and state files (`.vdx_config`, `.vdx_state.json`).
+
+```bash
+vdx clean-cache
+```
+
+### `vdx clean-files`
+
+Deletes all pulled components and source code directories. Also runs `clean-cache`. By default, this command **excludes** the `translations/` folder to prevent accidental deletion of localized strings.
+
+```bash
+vdx clean-files
+# Also delete your translations
+vdx clean-files --include-translations
+```
+
 ## **🔒 Security**
 
 vdx includes the custom header `X-VaultAPI-ClientID: veeva-vault-vdx-client`. Ensure your Vault Administrator has allowed this Client ID in _Admin > Settings > General Settings_ if Client ID Filtering is enabled.
@@ -133,20 +157,23 @@ This section is designed to provide context for AI coding agents or developers a
 
 ### 1. File Structure Overview
 
-When a Vault is pulled using `vdx pull`, the workspace is populated with specific directory structures based on the component types and classifications:
+When a Vault is pulled using `vdx pull`, the workspace is populated with specific directory structures based on the component types. 
 
 - **`components/`**: Stores Vault `metadata` components.
-  - Organized by component type (e.g., `components/Object/`, `components/Docfield/`.
+  - Organized by component type (e.g., `components/Object/`, `components/Docfield/`).
     - **`metadata.json`**: Type-level metadata definition in the type folder (e.g., `components/Object/metadata.json`).
-  - Within each type, organized by component (e.g., `components/Object/my_object__c`, `components/Docfield/name__v`.
-    - **`.mdl` files**: The component configuration. (e.g., `components/Object/my_object__c/my_object__c.mdl`). No subcomponent definition or references to subcomponents are included here is inc
-    - **`.d` files**: Bidirectional dependency graphs for the component (e.g., `components/Object/my_object__c/my_object__c.d`). Includes references to other components, it's own subcomponents, subcomponents in other components and configuration data records.
-    - **.xml|.json|.html files**: extracted from the raw MDL as stored with the appropriate extension for easier viewing. Stored by attribute name (e.g., `markup.xml`) References to these files are stored in the `.mdl` file using the relative path to the file in place of the attribute value and are surrounded in curly braces e.g., `markup({markup.xml}),`
-    - **Subcomponents**: organized by subcomponent type and subcomponent name (e.g. `components/Object/my_object__c/Field/name__v`)
-      - **`.mdl` files**: The subcomponent core configuration (e.g., `components/Object/my_object__c/Field/name__v/name__v.mdl`).
-      - **`.d` files**: Bidirectional dependency graphs for the subcomponent (e.g., `components/Object/my_object__c/Field/name__v/name__v.d`). Includes references to other components and subcomponents, it's own parent component, sibling subcomponents and configuration data records.
-      - **.xml|.json|.html files**: extracted from the raw MDL of the subcomponent with the appropriate extension for easier viewing. Stored by attribute name (e.g., `components/Object/my_object__c/Field/name__v/rules.json`). References to these files are stored in the `.mdl` file in place of the attribute value and using the relative path to the file are surrounded in curly braces e.g., `rules({rules.json}),`
-- **`javasdk/`**: Stores Vault `code` components (Java SDK).
+  - There are 2 options for storing the components `Simple` or `Advanced`:
+  - **SIMPLE**
+    -  **`.mdl` files**: The component configuration (e.g., `components/Object/my_object__c/my_object__c.mdl`)
+  - **ADVANCED**
+    - Within each type, organized by component name (e.g., `components/Object/my_object__c/`, `components/Docfield/name__v/`).
+      - **`.mdl` files**: The component configuration (e.g., `components/Object/my_object__c/my_object__c.mdl`). No subcomponent definitions or references to subcomponents are included here.
+      - **`.d` files**: Bidirectional dependency graphs for the component (e.g., `components/Object/my_object__c/my_object__c.d`). Includes references to other components, its own subcomponents, subcomponents in other components, and configuration data records.
+      - **`.xml`|`.json`|`.inc`|`.as` files**: Extracted from the raw MDL into the appropriate extension for easier viewing. Stored by attribute name (e.g., `markup.xml`). References to these files are stored in the `.mdl` file in place of the attribute value and are prefixed with an `@` symbol (e.g., `page_markup(@markup.xml),`).
+      - **Subcomponents**: Organized by subcomponent type and subcomponent name (e.g., `components/Object/my_object__c/Field/name__v/`).
+        - **`.mdl` files**: The subcomponent core configuration (e.g., `components/Object/my_object__c/Field/name__v/name__v.mdl`).
+        - **`.d` files**: Bidirectional dependency graphs for the subcomponent (e.g., `components/Object/my_object__c/Field/name__v/name__v.d`). Includes references to other components and subcomponents, its own parent component, sibling subcomponents, and configuration data records.
+        - **`.xml`|`.json`|`.inc`|`.as` files**: Extracted from the raw MDL of the subcomponent with the appropriate extension. References to these files are stored in the `.mdl` file in place of the attribute value, prefixed with `@` (e.g., `help_content(@help_content.inc),`).- **`javasdk/`**: Stores Vault `code` components (Java SDK).
   - Files are downloaded as raw `.java` files.
   - Organized into standard Java package directory structures parsed directly from the source code (e.g., `javasdk/com/veeva/vault/custom/triggers/MyTrigger.java`).
 - **`custom_pages/`**: Stores UI code distributions.
