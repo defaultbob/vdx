@@ -116,31 +116,16 @@ export async function activate(context: vscode.ExtensionContext) {
             const stateFile = path.join(workspaceRoot, '.vdx_state.json');
             
             let pullMode = 'advanced';
-            let needsModePrompt = true;
 
-            if (fs.existsSync(stateFile)) {
-                try {
-                    const stateData = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
-                    if (stateData.__pull_mode__) {
-                        pullMode = stateData.__pull_mode__;
-                        needsModePrompt = false;
-                    }
-                } catch (e) {
-                    // JSON parse error, ignore and prompt
-                }
-            }
+            const modeSelection = await vscode.window.showQuickPick([
+                { label: 'Advanced', description: 'Extract subcomponents and nested JSON/XML into folders (Recommended)' },
+                { label: 'Simple', description: 'Standard MDL files without subcomponent extraction' }
+            ], {
+                placeHolder: 'Select Pull Structure Mode'
+            });
 
-            if (needsModePrompt) {
-                const modeSelection = await vscode.window.showQuickPick([
-                    { label: 'Advanced', description: 'Extract subcomponents and nested JSON/XML into folders (Recommended)' },
-                    { label: 'Simple', description: 'Standard MDL files without subcomponent extraction' }
-                ], {
-                    placeHolder: 'Select Pull Structure Mode (this will be saved for future pulls)'
-                });
-
-                if (!modeSelection) return; // User cancelled
-                pullMode = modeSelection.label.toLowerCase();
-            }
+            if (!modeSelection) return; // User cancelled
+            pullMode = modeSelection.label.toLowerCase();
 
             const includeTranslations = await vscode.window.showQuickPick(['No', 'Yes'], {
                 placeHolder: 'Include translations in pull? (Default: No)'

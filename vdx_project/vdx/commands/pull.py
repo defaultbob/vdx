@@ -408,6 +408,38 @@ def pull_dependencies(state, ignore_patterns):
         if _update_local_file(file_path, content_to_write, state):
             updated_count += 1
 
+    # Ensure all components have a .d file, even if empty
+    managed_components = set()
+    for f_path in state.keys():
+        if f_path.startswith("__"):
+            continue
+        parts = f_path.split(os.path.sep)
+        if parts[0] == "components" and len(parts) >= 3:
+            comp_type = parts[1]
+            comp_name = parts[2]
+            d_file = os.path.join("components", comp_type, comp_name, f"{comp_name}.d")
+            managed_components.add(d_file)
+        elif parts[0] == "custom_pages" and len(parts) >= 2:
+            comp_name = parts[1]
+            d_file = os.path.join("custom_pages", comp_name, f"{comp_name}.d")
+            managed_components.add(d_file)
+        elif parts[0] == "javasdk" and f_path.endswith(".java"):
+            d_file = f_path[:-5] + ".d"
+            managed_components.add(d_file)
+
+    for d_file_path in managed_components:
+        if d_file_path not in vault_files:
+            if not is_ignored(d_file_path, ignore_patterns):
+                if d_file_path.startswith("javasdk"):
+                    if not os.path.exists(d_file_path[:-2] + ".java"):
+                        continue
+                else:
+                    if not os.path.exists(os.path.dirname(d_file_path)):
+                        continue
+                vault_files[d_file_path] = True
+                if _update_local_file(d_file_path, "", state):
+                    updated_count += 1
+
     return vault_files, updated_count
 
 def pull_translations(state, ignore_patterns):
