@@ -62,7 +62,9 @@ def _update_local_file(file_path, content, state, is_binary=False):
     local_checksum = state.get(file_path, "")
 
     if local_checksum != remote_checksum:
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        d_dir = os.path.dirname(file_path)
+        if d_dir:
+            os.makedirs(d_dir, exist_ok=True)
         mode = 'wb' if is_binary else 'w'
         encoding = None if is_binary else 'utf-8'
         with open(file_path, mode, encoding=encoding) as f:
@@ -312,8 +314,11 @@ def pull_custom_pages(state, ignore_patterns):
     return vault_files, updated_count
 
 
-def pull_dependencies(state, ignore_patterns):
+def pull_dependencies(state, ignore_patterns, all_vault_files=None):
     """Pulls component dependencies and writes .d files."""
+    if all_vault_files is None:
+        all_vault_files = {}
+
     logging.info("Pulling component dependencies...")
     vault_files = {}
     updated_count = 0
@@ -340,6 +345,14 @@ def pull_dependencies(state, ignore_patterns):
     from collections import defaultdict
     relationships = defaultdict(lambda: {"depends_on": [], "used_by": []})
 
+    def format_ref(ctype, cname):
+        if cname.startswith("com.veeva.vault.custom."):
+            package_path = cname.rsplit('.', 1)[0].replace('.', '/')
+            return f"javasdk/{package_path}/{cname}.java"
+        if ctype == "Clientdistribution":
+            return f"custom_pages/{cname}"
+        return f"{ctype}.{cname}"
+
     for record in records:
         src_type = record.get("comp_rel_source_comp__sysr.component_type__v")
         src_name = record.get("comp_rel_source_comp__sysr.component_name__v")
@@ -355,14 +368,6 @@ def pull_dependencies(state, ignore_patterns):
         tgt_sub_type = record.get("target_sub_type__sys")
         tgt_sub_name = record.get("target_sub_name__sys")
 
-        def format_ref(ctype, cname):
-            if cname.startswith("com.veeva.vault.custom."):
-                package_path = cname.rsplit('.', 1)[0].replace('.', '/')
-                return f"javasdk/{package_path}/{cname}.java"
-            if ctype == "Clientdistribution":
-                return f"custom_pages/{cname}"
-            return f"{ctype}.{cname}"
-
         formatted_tgt = format_ref(tgt_type, tgt_name)
         dep_str = f"depends_on: {formatted_tgt} [blocking={is_blocking}]"
         if tgt_sub_type and tgt_sub_name:
@@ -376,7 +381,16 @@ def pull_dependencies(state, ignore_patterns):
         relationships[(src_type, src_name)]["depends_on"].append(dep_str)
         relationships[(tgt_type, tgt_name)]["used_by"].append(used_str)
 
+    import json
+    manifest_graph = {}
+
     for (comp_type, comp_name), rels in relationships.items():
+        comp_key = format_ref(comp_type, comp_name)
+        manifest_graph[comp_key] = {
+            "depends_on": sorted(list(set(rels["depends_on"]))),
+            "used_by": sorted(list(set(rels["used_by"])))
+        }
+
         if comp_name.startswith("com.veeva.vault.custom."):
             package_path = comp_name.rsplit('.', 1)[0].replace('.', os.path.sep)
             file_path = os.path.join("javasdk", package_path, f"{comp_name}.d")
@@ -408,17 +422,33 @@ def pull_dependencies(state, ignore_patterns):
         if _update_local_file(file_path, content_to_write, state):
             updated_count += 1
 
+    # Write centralized manifest graph file
+    manifest_path = "component_dependencies.json"
+    if not is_ignored(manifest_path, ignore_patterns):
+        vault_files[manifest_path] = True
+        manifest_content = json.dumps(manifest_graph, indent=2) + "\n"
+        if _update_local_file(manifest_path, manifest_content, state):
+            updated_count += 1
+
     # Ensure all components have a .d file, even if empty
     managed_components = set()
-    for f_path in state.keys():
+    for f_path in all_vault_files.keys():
         if f_path.startswith("__"):
             continue
         parts = f_path.split(os.path.sep)
-        if parts[0] == "components" and len(parts) >= 3:
-            comp_type = parts[1]
-            comp_name = parts[2]
-            d_file = os.path.join("components", comp_type, comp_name, f"{comp_name}.d")
-            managed_components.add(d_file)
+        if parts[0] == "components":
+            if len(parts) >= 4 and f_path.endswith(".mdl"):
+                # New style: components/Type/Name/Name.mdl
+                comp_type = parts[1]
+                comp_name = parts[2]
+                d_file = os.path.join("components", comp_type, comp_name, f"{comp_name}.d")
+                managed_components.add(d_file)
+            elif len(parts) == 3 and f_path.endswith(".mdl"):
+                # Old style simple: components/Type/Name.mdl
+                comp_type = parts[1]
+                comp_name = parts[2][:-4]
+                d_file = os.path.join("components", comp_type, f"{comp_name}.d")
+                managed_components.add(d_file)
         elif parts[0] == "custom_pages" and len(parts) >= 2:
             comp_name = parts[1]
             d_file = os.path.join("custom_pages", comp_name, f"{comp_name}.d")
@@ -434,7 +464,11 @@ def pull_dependencies(state, ignore_patterns):
                     if not os.path.exists(d_file_path[:-2] + ".java"):
                         continue
                 else:
-                    if not os.path.exists(os.path.dirname(d_file_path)):
+                    d_dir = os.path.dirname(d_file_path)
+                    # Don't try to create a file inside a path that is actually a file on disk (from old flat struct)
+                    if not os.path.isdir(d_dir) and os.path.exists(d_dir):
+                        continue
+                    if not os.path.exists(d_dir):
                         continue
                 vault_files[d_file_path] = True
                 if _update_local_file(d_file_path, "", state):
@@ -572,6 +606,8 @@ def run_pull(args):
                 # Advanced mode is now the default unless --simple is specified
                 advanced_mode = not getattr(args, 'simple', False)
                 vault_files, updated_count = pull_func(state, ignore_patterns, advanced_mode)
+            elif pull_func == pull_dependencies:
+                vault_files, updated_count = pull_func(state, ignore_patterns, all_vault_files)
             else:
                 vault_files, updated_count = pull_func(state, ignore_patterns)
             all_vault_files.update(vault_files)
