@@ -174,6 +174,68 @@ export async function activate(context: vscode.ExtensionContext) {
             runVdxCommand(args, 'Clean All Files');
         }),
 
+        vscode.commands.registerCommand('vdx.pushFile', (uri?: vscode.Uri) => {
+            let targetPath = '';
+            if (uri && uri.fsPath) {
+                targetPath = uri.fsPath;
+            } else {
+                const editor = vscode.window.activeTextEditor;
+                if (editor) {
+                    targetPath = editor.document.uri.fsPath;
+                }
+            }
+            if (!targetPath) {
+                vscode.window.showErrorMessage("No file selected or active to push.");
+                return;
+            }
+            runVdxCommand(['push', '--file', targetPath], `Push ${path.basename(targetPath)}`);
+        }),
+
+        vscode.commands.registerCommand('vdx.organizeFile', (uri?: vscode.Uri) => {
+            const workspaceFolders = vscode.workspace.workspaceFolders;
+            if (!workspaceFolders) {
+                vscode.window.showErrorMessage("No workspace folder open.");
+                return;
+            }
+            const workspaceRoot = workspaceFolders[0].uri.fsPath;
+            
+            let targetPath = '';
+            let isTemp = false;
+
+            const editor = vscode.window.activeTextEditor;
+            
+            if (uri && uri.fsPath && !(editor && editor.document.uri.fsPath === uri.fsPath && editor.document.isDirty)) {
+                // Triggered from explorer, or from editor but the file is saved
+                targetPath = uri.fsPath;
+            } else if (editor) {
+                // Triggered from command palette, or file is dirty/unsaved
+                const tmpDir = path.join(workspaceRoot, '.tmp');
+                if (!fs.existsSync(tmpDir)) {
+                    fs.mkdirSync(tmpDir, { recursive: true });
+                }
+                targetPath = path.join(tmpDir, 'organize_temp.mdl');
+                fs.writeFileSync(targetPath, editor.document.getText(), 'utf8');
+                isTemp = true;
+            }
+
+            if (!targetPath) {
+                vscode.window.showErrorMessage("No file selected or active to organize.");
+                return;
+            }
+            
+            const displayPath = isTemp ? "unsaved file" : path.basename(targetPath);
+            runVdxCommand(['organize', targetPath], `Organize ${displayPath}`);
+            
+            // Clean up temp file after a short delay to allow CLI to read it
+            if (isTemp) {
+                setTimeout(() => {
+                    if (fs.existsSync(targetPath)) {
+                        fs.unlinkSync(targetPath);
+                    }
+                }, 5000);
+            }
+        }),
+
         vscode.commands.registerCommand('vdx.showChangesInUI', async () => {
             const workspaceFolders = vscode.workspace.workspaceFolders;
             if (!workspaceFolders) {

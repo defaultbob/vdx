@@ -5,6 +5,49 @@ import io
 from pathlib import Path
 import json
 from vdx.utils import load_state, save_state, compute_checksum, is_ignored, load_ignore_patterns, reassemble_component
+from vdx.api import make_vault_request, API_VERSION
+
+def _handle_push_response(response, context=""):
+    """
+    Centralized handler for push API responses.
+    """
+    # The make_vault_request function already logs the full body on any API failure.
+    # This function's job is to interpret the success/failure of a push operation.
+
+    # MDL execute has a different success payload
+    if "mdl/execute" in response.url:
+        try:
+            data = response.json()
+            if data.get('responseStatus') == 'SUCCESS':
+                logging.info(f"{context}MDL script executed successfully.")
+                return True
+            else:
+                logging.error(f"{context}MDL script execution failed.")
+                return False
+        except json.JSONDecodeError:
+            logging.error(f"{context}Failed to parse MDL response as JSON.")
+            logging.debug(f"[API DEBUG] Raw Response Body:\n{response.text}")
+            logging.debug("[API DEBUG] Expected a JSON object with a 'responseStatus' key.")
+            return False
+
+    # All other modern APIs use this pattern
+    try:
+        # Some successful responses (like DELETE) might have no body.
+        if response.status_code == 200 and not response.content:
+            logging.info(f"{context}Push successful (no response body).")
+            return True
+        data = response.json()
+        if data.get("responseStatus") == "SUCCESS":
+            logging.info(f"{context}Push successful.")
+            return True
+        else:
+            logging.error(f"{context}Push operation reported a failure.")
+            return False
+    except json.JSONDecodeError:
+        logging.error(f"{context}Failed to parse push response as JSON.")
+        logging.debug(f"[API DEBUG] Raw Response Body:\n{response.text}")
+        logging.debug("[API DEBUG] Expected a JSON object with a 'responseStatus' key.")
+        return False
 
 def push_mdl_changes(changes, deletions, dry_run=False):
     if not changes and not deletions:
@@ -182,6 +225,16 @@ def run_push(args):
 
     new_or_changed_files = [path for path, checksum in local_files.items() if state.get(path) != checksum]
     deleted_files = [path for path in state.keys() if path not in local_files]
+
+    if getattr(args, 'file', None):
+        # Normalize path
+        target_file = os.path.relpath(args.file)
+        if not os.path.exists(target_file):
+            logging.error(f"File not found: {target_file}")
+            return 0
+        logging.info(f"Pushing specific file: {target_file}")
+        new_or_changed_files = [target_file]
+        deleted_files = []
 
     mdl_changes = [p for p in new_or_changed_files if p.startswith("components" + os.sep)]
     mdl_deletions = [p for p in deleted_files if p.startswith("components" + os.sep)]

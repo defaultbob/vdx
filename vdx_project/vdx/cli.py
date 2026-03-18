@@ -6,6 +6,7 @@ from vdx.commands.push import run_push
 from vdx.commands.package import run_package
 from vdx.commands.clean import run_clean_cache, run_clean_files
 from vdx.commands.patch import run_patch
+from vdx.commands.organize import run_organize
 from vdx.utils import load_dotenv
 
 def main():
@@ -32,6 +33,11 @@ def main():
     push_parser.add_argument("--dry-run", action="store_true", help="Print changes without modifying")
     push_parser.add_argument("--verbose", action="store_true", help=argparse.SUPPRESS)
     push_parser.add_argument("--translations", action="store_true", help="Include bulk translations in the push operation.")
+    push_parser.add_argument("--file", help="Push a specific file (and its parent component if applicable) instead of all changes.", type=str)
+    
+    organize_parser = subparsers.add_parser("organize", help="Organize an MDL file into the VDX directory structure")
+    organize_parser.add_argument("file", help="The MDL file to organize")
+    organize_parser.add_argument("--verbose", action="store_true", help=argparse.SUPPRESS)
     
     package_parser = subparsers.add_parser("package", help="Create, import, and validate a VPK")
     package_parser.add_argument("--verbose", action="store_true", help=argparse.SUPPRESS)
@@ -58,6 +64,8 @@ def main():
         run_pull(args)
     elif args.command == "push":
         run_push(args)
+    elif args.command == "organize":
+        run_organize(args)
     elif args.command == "package":
         run_package(args)
     elif args.command == "patch":

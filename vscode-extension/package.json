@@ -2,7 +2,7 @@
     "name": "vdx-vscode",
     "displayName": "Vault Developer eXperience",
     "description": "VS Code integration for the vdx CLI tool",
-    "version": "0.4.30",
+    "version": "0.4.38",
     "repository": {
         "type": "git",
         "url": "https://github.com/davidmills/vdx"
@@ -49,8 +49,48 @@
             {
                 "command": "vdx.showChangesInUI",
                 "title": "VDX: Show Local Changes in UI"
+            },
+            {
+                "command": "vdx.pushFile",
+                "title": "VDX: Push This File to Vault"
+            },
+            {
+                "command": "vdx.organizeFile",
+                "title": "VDX: Organize MDL File into Components"
             }
-        ]
+        ],
+        "menus": {
+            "explorer/context": [
+                {
+                    "command": "vdx.pushFile",
+                    "group": "vdx"
+                },
+                {
+                    "command": "vdx.organizeFile",
+                    "group": "vdx"
+                }
+            ],
+            "editor/context": [
+                {
+                    "command": "vdx.pushFile",
+                    "group": "vdx"
+                },
+                {
+                    "command": "vdx.organizeFile",
+                    "group": "vdx"
+                }
+            ],
+            "editor/title/context": [
+                {
+                    "command": "vdx.pushFile",
+                    "group": "vdx"
+                },
+                {
+                    "command": "vdx.organizeFile",
+                    "group": "vdx"
+                }
+            ]
+        }
     },
     "scripts": {
         "vscode:prepublish": "npm run copy-cli && npm run compile",

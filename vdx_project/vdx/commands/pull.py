@@ -616,6 +616,7 @@ def run_pull(args):
             logging.error(f"An unexpected error occurred during {pull_func.__name__}: {e}")
             logging.debug("Traceback:", exc_info=True)
 
+    # Clean up files in state that no longer exist in Vault
     for tracked_file in list(state.keys()):
         if tracked_file not in all_vault_files and tracked_file not in ["__vdx_version__", "__pull_mode__"]:
             if os.path.exists(tracked_file):
@@ -626,7 +627,39 @@ def run_pull(args):
                 except OSError as e:
                     logging.error(f"Error removing file {tracked_file}: {e}")
             del state[tracked_file]
-            
+
+    # Clean up local files that aren't in state but also don't exist in Vault
+    tracked_dirs = ["components", "javasdk", "custom_pages"]
+    if args.translations:
+        tracked_dirs.append("translations")
+
+    for directory in tracked_dirs:
+        if not os.path.exists(directory):
+            continue
+        for root, _, files in os.walk(directory):
+            for file in files:
+                path = os.path.join(root, file)
+                if not is_ignored(path, ignore_patterns) and path not in all_vault_files:
+                    try:
+                        os.remove(path)
+                        logging.info(f"Deleted locally (not in Vault): {path}")
+                        deleted_count += 1
+                    except OSError as e:
+                        logging.error(f"Error removing file {path}: {e}")
+
+    # Remove empty directories
+    for directory in tracked_dirs:
+        if not os.path.exists(directory):
+            continue
+        for root, dirs, files in os.walk(directory, topdown=False):
+            for dir_name in dirs:
+                dir_path = os.path.join(root, dir_name)
+                try:
+                    if not os.listdir(dir_path):
+                        os.rmdir(dir_path)
+                except OSError:
+                    pass
+
     # Save the current mode preference
     state["__pull_mode__"] = "simple" if getattr(args, 'simple', False) else "advanced"
             
