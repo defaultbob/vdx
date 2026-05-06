@@ -315,7 +315,7 @@ def pull_custom_pages(state, ignore_patterns):
 
 
 def pull_dependencies(state, ignore_patterns, all_vault_files=None):
-    """Pulls component dependencies and writes .d files."""
+    """Pulls component dependencies and writes IMPORT statements into MDL files."""
     if all_vault_files is None:
         all_vault_files = {}
 
@@ -324,7 +324,7 @@ def pull_dependencies(state, ignore_patterns, all_vault_files=None):
     updated_count = 0
     base_dir = "components"
 
-    query = "SELECT blocking__sys, target_component_name__sys, target_component_type__sys, target_sub_name__sys, target_sub_type__sys, comp_rel_source_comp__sysr.component_name__v, comp_rel_source_comp__sysr.component_type__v FROM vault_component_relationship__sys"
+    query = "SELECT target_component_name__sys, target_component_type__sys, target_sub_name__sys, target_sub_type__sys, comp_rel_source_comp__sysr.component_name__v, comp_rel_source_comp__sysr.component_type__v FROM vault_component_relationship__sys"
     endpoint = f"/api/{API_VERSION}/query"
     response = make_vault_request("POST", endpoint, data={"q": query})
     data = _handle_api_response(response, "Component Relationships: ")
@@ -343,7 +343,8 @@ def pull_dependencies(state, ignore_patterns, all_vault_files=None):
         records.extend(current_data.get("data", []))
 
     from collections import defaultdict
-    relationships = defaultdict(lambda: {"depends_on": [], "used_by": []})
+    imports_map = defaultdict(list)
+    manifest_graph = {}
 
     def format_ref(ctype, cname):
         if cname.startswith("com.veeva.vault.custom."):
@@ -362,117 +363,65 @@ def pull_dependencies(state, ignore_patterns, all_vault_files=None):
         if not src_type or not src_name or not tgt_type or not tgt_name:
             continue
 
-        blocking_val = record.get("blocking__sys", [])
-        is_blocking = "true" if ("block__sys" in blocking_val) else "false"
-
         tgt_sub_type = record.get("target_sub_type__sys")
         tgt_sub_name = record.get("target_sub_name__sys")
 
-        formatted_tgt = format_ref(tgt_type, tgt_name)
-        dep_str = f"depends_on: {formatted_tgt} [blocking={is_blocking}]"
+        # Manifest entry
+        src_key = format_ref(src_type, src_name)
+        tgt_ref = format_ref(tgt_type, tgt_name)
         if tgt_sub_type and tgt_sub_name:
-            dep_str += f" [target_sub={tgt_sub_type}.{tgt_sub_name}]"
+            tgt_ref += f"#{tgt_sub_type}.{tgt_sub_name}"
+        if src_key not in manifest_graph:
+            manifest_graph[src_key] = {"depends_on": []}
+        manifest_graph[src_key]["depends_on"].append(tgt_ref)
 
-        formatted_src = format_ref(src_type, src_name)
-        used_str = f"used_by: {formatted_src} [blocking={is_blocking}]"
-        if tgt_sub_type and tgt_sub_name:
-            used_str += f" [target_sub={tgt_sub_type}.{tgt_sub_name}]"
-
-        relationships[(src_type, src_name)]["depends_on"].append(dep_str)
-        relationships[(tgt_type, tgt_name)]["used_by"].append(used_str)
-
-    import json
-    manifest_graph = {}
-
-    for (comp_type, comp_name), rels in relationships.items():
-        comp_key = format_ref(comp_type, comp_name)
-        manifest_graph[comp_key] = {
-            "depends_on": sorted(list(set(rels["depends_on"]))),
-            "used_by": sorted(list(set(rels["used_by"])))
-        }
-
-        if comp_name.startswith("com.veeva.vault.custom."):
-            package_path = comp_name.rsplit('.', 1)[0].replace('.', os.path.sep)
-            file_path = os.path.join("javasdk", package_path, f"{comp_name}.d")
-        elif comp_type == "Clientdistribution":
-            file_path = os.path.join("custom_pages", comp_name, f"{comp_name}.d")
-        else:
-            file_path = os.path.join("components", comp_type, comp_name, f"{comp_name}.d")
-
-        if is_ignored(file_path, ignore_patterns):
-            continue
-            
-        # Ensure we only create .d files if the component itself was pulled
-        if not os.path.exists(os.path.dirname(file_path)):
+        # Only MDL components get IMPORT statements written into their .mdl file
+        if src_name.startswith("com.veeva.vault.custom.") or src_type == "Clientdistribution":
             continue
 
-        # Deduplicate and sort
-        depends_on = sorted(list(set(rels["depends_on"])))
-        used_by = sorted(list(set(rels["used_by"])))
+        import_stmt = f"IMPORT {tgt_type}.{tgt_name}"
+        if tgt_sub_type and tgt_sub_name:
+            import_stmt += f"#{tgt_sub_type}.{tgt_sub_name}"
+        import_stmt += ";"
+        imports_map[(src_type, src_name)].append(import_stmt)
 
-        lines = []
-        if depends_on:
-            lines.extend(depends_on)
-        if used_by:
-            lines.extend(used_by)
-
-        content_to_write = "\n".join(lines) + "\n"
-        vault_files[file_path] = True
-
-        if _update_local_file(file_path, content_to_write, state):
-            updated_count += 1
+    # Deduplicate manifest lists
+    for key in manifest_graph:
+        manifest_graph[key]["depends_on"] = sorted(set(manifest_graph[key]["depends_on"]))
 
     # Write centralized manifest graph file
-    manifest_path = "component_dependencies.json"
+    import json
+    manifest_path = os.path.join(".vdx", "component_dependencies.json")
+    os.makedirs(".vdx", exist_ok=True)
     if not is_ignored(manifest_path, ignore_patterns):
         vault_files[manifest_path] = True
         manifest_content = json.dumps(manifest_graph, indent=2) + "\n"
         if _update_local_file(manifest_path, manifest_content, state):
             updated_count += 1
 
-    # Ensure all components have a .d file, even if empty
-    managed_components = set()
-    for f_path in all_vault_files.keys():
-        if f_path.startswith("__"):
+    # Prepend IMPORT statements to each MDL component's root .mdl file.
+    # State is intentionally not updated here — state tracks the vault MDL checksum
+    # (written by pull_mdl_components) so that import-only changes don't trigger
+    # unnecessary re-pulls of unchanged MDL content.
+    for (comp_type, comp_name), import_stmts in imports_map.items():
+        mdl_path = os.path.join(base_dir, comp_type, comp_name, f"{comp_name}.mdl")
+        if not os.path.exists(mdl_path):
             continue
-        parts = f_path.split(os.path.sep)
-        if parts[0] == "components":
-            if len(parts) >= 4 and f_path.endswith(".mdl"):
-                # New style: components/Type/Name/Name.mdl
-                comp_type = parts[1]
-                comp_name = parts[2]
-                d_file = os.path.join("components", comp_type, comp_name, f"{comp_name}.d")
-                managed_components.add(d_file)
-            elif len(parts) == 3 and f_path.endswith(".mdl"):
-                # Old style simple: components/Type/Name.mdl
-                comp_type = parts[1]
-                comp_name = parts[2][:-4]
-                d_file = os.path.join("components", comp_type, f"{comp_name}.d")
-                managed_components.add(d_file)
-        elif parts[0] == "custom_pages" and len(parts) >= 2:
-            comp_name = parts[1]
-            d_file = os.path.join("custom_pages", comp_name, f"{comp_name}.d")
-            managed_components.add(d_file)
-        elif parts[0] == "javasdk" and f_path.endswith(".java"):
-            d_file = f_path[:-5] + ".d"
-            managed_components.add(d_file)
 
-    for d_file_path in managed_components:
-        if d_file_path not in vault_files:
-            if not is_ignored(d_file_path, ignore_patterns):
-                if d_file_path.startswith("javasdk"):
-                    if not os.path.exists(d_file_path[:-2] + ".java"):
-                        continue
-                else:
-                    d_dir = os.path.dirname(d_file_path)
-                    # Don't try to create a file inside a path that is actually a file on disk (from old flat struct)
-                    if not os.path.isdir(d_dir) and os.path.exists(d_dir):
-                        continue
-                    if not os.path.exists(d_dir):
-                        continue
-                vault_files[d_file_path] = True
-                if _update_local_file(d_file_path, "", state):
-                    updated_count += 1
+        with open(mdl_path, 'r', encoding='utf-8') as f:
+            existing = f.read()
+
+        # Strip any IMPORT lines from a previous pull
+        stripped = re.sub(r'^IMPORT\s+[^\n]+\n?', '', existing, flags=re.MULTILINE).lstrip('\n')
+
+        unique_imports = sorted(set(import_stmts))
+        new_content = "\n".join(unique_imports) + "\n\n" + stripped
+
+        if existing != new_content:
+            with open(mdl_path, 'w', encoding='utf-8') as f:
+                f.write(new_content)
+            logging.info(f"Updated imports: {mdl_path}")
+            updated_count += 1
 
     return vault_files, updated_count
 

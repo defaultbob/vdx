@@ -177,10 +177,14 @@ def process_mdl_and_extract(mdl_str, metadata_json, comp_type, comp_name, base_d
     attributes_metadata = {}
     if metadata_json and "data" in metadata_json:
         data_obj = metadata_json["data"]
-        if isinstance(data_obj, dict) and "attributes" in data_obj:
-            for attr in data_obj["attributes"]:
+        if isinstance(data_obj, dict):
+            for attr in data_obj.get("attributes", []):
                 if isinstance(attr, dict):
                     attributes_metadata[attr.get("name")] = attr
+            for sc in data_obj.get("sub_components", []):
+                for attr in sc.get("attributes", []):
+                    if isinstance(attr, dict):
+                        attributes_metadata[attr.get("name")] = attr
             
     extracted_files = {}
 
@@ -290,6 +294,7 @@ def process_mdl_and_extract(mdl_str, metadata_json, comp_type, comp_name, base_d
                 
                 sub_mdl = f"{s_type} {s_name}(\n   {f_sub_content}\n)"
                 extracted_files[os.path.join(sub_dir, f"{s_name}.mdl")] = sub_mdl
+                formatted_items.append(f'<INCLUDES {s_type}/{s_name}/{s_name}.mdl>')
             else:
                 attr_match = re.match(r'^([a-zA-Z0-9_]+)\s*\((.*)\)$', item, re.DOTALL)
                 if attr_match:
@@ -311,7 +316,7 @@ def process_mdl_and_extract(mdl_str, metadata_json, comp_type, comp_name, base_d
                                     levels = len(Path(current_dir).parts)
                                     rel_root = (".." + os.path.sep) * levels
                                     java_path = os.path.join(rel_root, "javasdk", package_path, f"{name}.java")
-                                    formatted_items.append(f"{a_name}(@{java_path})")
+                                    formatted_items.append(f'{a_name}(<INCLUDES {java_path}>)')
                                     continue
 
                         ext, content_to_save = get_extraction_info(block_c_type, a_name, a_val)
@@ -319,7 +324,7 @@ def process_mdl_and_extract(mdl_str, metadata_json, comp_type, comp_name, base_d
                             filename = f"{a_name}{ext}"
                             file_path = os.path.join(current_dir, filename)
                             extracted_files[file_path] = content_to_save
-                            formatted_items.append(f"{a_name}(@{filename})")
+                            formatted_items.append(f'{a_name}(<INCLUDES {filename}>)')
                         else:
                             formatted_items.append(item)
                     else:
@@ -440,8 +445,9 @@ def reassemble_component(base_dir, comp_type, comp_name):
                     return f"{attr_name}('{ptr_content}')"
             return match.group(0) # fallback
             
-        content = re.sub(r"([a-zA-Z0-9_]+)\(\s*@([^)]+)\s*\)", pointer_replacer, content)
-        
+        content = re.sub(r'([a-zA-Z0-9_]+)\(<INCLUDES\s+((?:[^>\\]|\\.)+)>\)', pointer_replacer, content)
+        content = re.sub(r',?\s*<INCLUDES\s+(?:[^>\\]|\\.)+>', '', content)
+
         subcomponents = []
         for item in os.listdir(current_dir):
             item_path = os.path.join(current_dir, item)
