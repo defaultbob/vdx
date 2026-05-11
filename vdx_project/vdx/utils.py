@@ -190,6 +190,7 @@ def process_mdl_and_extract(mdl_str, metadata_json, comp_type, comp_name, base_d
 
     INC_OVERRIDES = ["email_body", "notification", "subject", "help_content"]
     JSON_OVERRIDES = ["conditions", "trigger_date"]
+    JS_OVERRIDES = ["validator_code"]
 
     def get_extraction_info(c_type, attr_name, val):
         meta = attributes_metadata.get(attr_name, {})
@@ -207,6 +208,8 @@ def process_mdl_and_extract(mdl_str, metadata_json, comp_type, comp_name, base_d
             ext = ".inc"
         elif attr_name in JSON_OVERRIDES:
             ext = ".json"
+        elif attr_name in JS_OVERRIDES:
+            ext = ".js"
             
         if "<ActionScript>" in val and "</ActionScript>" in val:
             ext = ".as"
@@ -241,12 +244,12 @@ def process_mdl_and_extract(mdl_str, metadata_json, comp_type, comp_name, base_d
             except Exception:
                 content_to_save = val_clean
                 
-        elif ext == ".inc":
+        elif ext in (".inc", ".js"):
             val_clean = val.strip()
             if val_clean.startswith("'") and val_clean.endswith("'"): val_clean = val_clean[1:-1]
             elif val_clean.startswith('"') and val_clean.endswith('"'): val_clean = val_clean[1:-1]
             content_to_save = val_clean
-            
+
         return ext, content_to_save
         
     def format_block(content, block_c_type, block_c_name, current_dir, is_top_level=False):

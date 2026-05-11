@@ -403,10 +403,13 @@ def pull_dependencies(state, ignore_patterns, all_vault_files=None):
     # State is intentionally not updated here — state tracks the vault MDL checksum
     # (written by pull_mdl_components) so that import-only changes don't trigger
     # unnecessary re-pulls of unchanged MDL content.
+    import glob
     for (comp_type, comp_name), import_stmts in imports_map.items():
-        mdl_path = os.path.join(base_dir, comp_type, comp_name, f"{comp_name}.mdl")
-        if not os.path.exists(mdl_path):
+        # Sub-component types are nested inside a parent directory, so search recursively
+        matches = glob.glob(os.path.join(base_dir, "**", comp_type, comp_name, f"{comp_name}.mdl"), recursive=True)
+        if not matches:
             continue
+        mdl_path = matches[0]
 
         with open(mdl_path, 'r', encoding='utf-8') as f:
             existing = f.read()

@@ -1,74 +1,37 @@
-# vdx - Vault Developer eXperience CLI
+# vdx — Vault Developer eXperience
 
-**vdx** is a Python command-line tool designed to bridge the gap between Veeva Vault configuration and modern source control. By leveraging the Vault API and Metadata Definition Language (MDL), vdx allows you to track, deploy, and package Vault components locally as code.
+**vdx** is a CLI tool that syncs Veeva Vault configuration to local files for source control, code review, and deployment. It speaks the Vault API and MDL (Metadata Definition Language), pulling vault components down into a structured directory tree and pushing changes back up.
 
-## **✨ Features**
+---
 
-- **Metadata Filtering**: Intelligently pulls only components of the `metadata` class, ensuring your repository stays focused on configuration rather than data records.
-- **Structural Parsing**: Automatically splits monolithic parent components (like Objects) into discrete, nested subcomponent files (like Fields) for cleaner version control.
-- **Dynamic Attribute Extraction**: Intelligently detects and extracts complex attribute strings (XML, JSON, HTML, ActionScript) into their own properly formatted files (`.xml`, `.json`, `.html`, `.as`).
-- **Source Control Syncing**: Organizes discrete `.mdl` files by component type and name (e.g., `components/Object/my_object__c/my_object__c.mdl`).
-- **Smart Deployments**: Push only modified or new components. `vdx` uses MD5 checksums and a local state tracker to minimize API calls.
-- **Bidirectional Deletions**: If a component is removed from Vault, `vdx pull` removes the local file. If you delete a local file, `vdx push` executes a `DROP` command in Vault.
-- **VPK Packaging**: Bundle local changes into a standard Custom Configuration Migration Package (VPK) and automatically trigger a non-destructive validation job.
-- **Auto-Login & Session Renewal**: Seamlessly authenticates using `.env` credentials if a session is missing, and automatically generates a new session ID if it encounters an `INVALID_SESSION_ID` error during long-running operations.
-- **Auto-Cache Invalidation**: Automatically clears the local `.vdx_state.json` cache and forces a clean pull whenever the CLI is upgraded to a new version.
-
-## **🛠 Prerequisites**
-
-- **Python 3.6+**
-- Veeva Vault account with API access and Administrative permissions.
-
-## **🚀 Installation & Setup**
-
-### 1. Clone and Environment Setup
-
-Clone the repository and set up a virtual environment to manage dependencies:
+## Installation
 
 ```bash
-# Clone the repository
-git clone <your-repo-url>
+git clone <repo-url>
 cd vdx
-
-# Create a virtual environment
 python3 -m venv venv
+source venv/bin/activate          # Windows: .\venv\Scripts\activate
+pip install requests
 
-# Activate the environment
-# On Mac/Linux:
-source venv/bin/activate
-# On Windows:
-.\venv\Scripts\activate
-
-# Install dependencies
-python3 -m pip install requests
-```
-
-### 2. Global Access (Run anywhere)
-
-To run `vdx` from any directory on your machine, create a symbolic link that points to the virtual environment's interpreter.
-
-**Mac/Linux:**
-
-```bash
-# Ensure main.py is executable
+# Make vdx available globally (Mac/Linux)
 chmod +x vdx_project/main.py
-
-# Link the script to your local bin (using the venv python)
 sudo ln -s "$(pwd)/vdx_project/main.py" /usr/local/bin/vdx
 ```
 
-**Windows (PowerShell Profile):**
-Add this to your `$PROFILE` to use the environment's python automatically:
-
+**Windows (PowerShell profile):**
 ```powershell
 function vdx { & "C:\path\to\vdx\venv\Scripts\python.exe" "C:\path\to\vdx\vdx_project\main.py" $args }
 ```
 
-## **⚙️ Configuration**
+### VS Code Extension
 
-### Environment Variables (`.env`)
+Install `vdx-vscode-x.x.x.vsix` from the `vscode-extension/` directory via _Extensions → Install from VSIX_.
 
-Store your credentials securely in a `.env` file in the `vdx_project` root:
+---
+
+## Configuration
+
+Create a `.env` file in your working directory:
 
 ```bash
 VAULT_DNS="your-vault.veevavault.com"
@@ -76,147 +39,158 @@ VAULT_USERNAME="your.email@company.com"
 VAULT_PASSWORD="your_password"
 ```
 
-### `.vdxignore`
+Optionally add a `.vdxignore` file using glob patterns to skip components:
 
-Prevent system-managed or restricted components from cluttering your repository using standard wildcard matching:
-
-```text
-components/Group/system_group*
+```
 components/Picklist/*__sys
+components/Group/system_*
 ```
 
-## **📖 Usage Guide**
+---
 
-### `vdx login`
+## Commands
 
-Authenticates and retrieves an active API session.
+| Command | Description |
+|---|---|
+| `vdx login` | Authenticate and store a session |
+| `vdx pull` | Pull all components from Vault |
+| `vdx pull --simple` | Pull as monolithic MDL files (no extraction) |
+| `vdx pull --translations` | Also pull bulk translation CSVs |
+| `vdx push` | Push local changes to Vault |
+| `vdx push --dry-run` | Preview changes without deploying |
+| `vdx push --file <path>` | Push a single file (and its parent component) |
+| `vdx push --translations` | Also push translations |
+| `vdx organize <file.mdl>` | Explode a raw MDL file into the directory structure |
+| `vdx package` | Build a VPK and trigger validation in Vault |
+| `vdx patch` | Generate a patch file of local changes |
+| `vdx clean-cache` | Remove `.vdx_config` and `.vdx_state.json` |
+| `vdx clean-files` | Delete all pulled files and cache |
 
-```bash
-vdx login
+---
+
+## Directory Structure (Advanced Mode)
+
+Advanced mode is the default. It extracts subcomponents and large attribute values into separate files for clean diffs and code review.
+
+```
+<working-directory>/
+│
+├── components/                         # Vault metadata components
+│   └── <ComponentType>/
+│       ├── metadata.json               # Type-level API metadata
+│       └── <component_name>/
+│           ├── <component_name>.mdl    # Root MDL file (see format below)
+│           └── <SubType>/
+│               └── <sub_name>/
+│                   ├── <sub_name>.mdl  # Subcomponent MDL
+│                   ├── *.xml           # Extracted XML attributes
+│                   ├── *.json          # Extracted JSON attributes
+│                   ├── *.inc           # Extracted HTML/template attributes
+│                   ├── *.as            # Extracted ActionScript attributes
+│                   └── *.js            # Extracted JavaScript attributes
+│
+├── javasdk/                            # Vault SDK code components
+│   └── com/veeva/vault/custom/
+│       └── <package>/<ClassName>.java
+│
+├── custom_pages/                       # UI code distributions
+│   └── <distribution_name>/
+│       └── <extracted zip contents>
+│
+├── translations/                       # (optional, --translations flag)
+│   └── <lang>/
+│       └── <message_type>.csv
+│
+├── .vdx/
+│   └── component_dependencies.json    # Full outbound dependency graph
+│
+├── .vdx_state.json                    # MD5 checksum state tracker
+└── .vdxignore                         # Glob patterns for components to skip
 ```
 
-### `vdx pull`
+---
 
-Queries Vault for all components of class `metadata` and downloads their MDL definitions. By default, `vdx` uses **Advanced Mode**, extracting subcomponents and nested structures into folders.
+## MDL File Format (Advanced Syntax)
 
-```bash
-vdx pull
-# Use simple mode for monolithic MDL files
-vdx pull --simple
-# Include translations
-vdx pull --translations
+### IMPORT statements
+
+Outbound dependencies are written as `IMPORT` declarations at the top of the root `.mdl` file. These are derived from Vault's component relationship data and tell you what this component requires to exist.
+
+```mdl
+IMPORT Doclifecycle.approval_process__c;
+IMPORT Object.product__v;
+IMPORT Object.product__v#Field.created_date__v;
+
+RECREATE Object my_object__c (
+   ...
+)
 ```
 
-- Automatically handles API pagination.
-- Logs `WARNING` responses (like duplicate query detection) while proceeding with the sync.
-- Truncates large error messages for better console readability.
+- `IMPORT Type.name;` — depends on a top-level component
+- `IMPORT Type.name#SubType.sub_name;` — depends on a specific subcomponent within another component
 
-### `vdx push`
+IMPORT statements are regenerated on every `vdx pull` and are not sent to Vault on push.
 
-Deploys local changes to Vault.
+### INCLUDES — extracted attribute values
 
-```bash
-vdx push
-# Or use dry-run to preview changes
-vdx push --dry-run
+Large or structured attribute values are extracted to sidecar files. The attribute value in the `.mdl` file is replaced with an `<INCLUDES path>` reference:
+
+```mdl
+RECREATE Object my_object__c (
+   label('My Object'),
+   help_content(<INCLUDES help_content.inc>),
+   security_options(<INCLUDES security_options.xml>),
+   conditions(<INCLUDES conditions.json>)
+)
 ```
 
-### `vdx package`
+The path is relative to the directory containing the `.mdl` file. On `vdx push`, the file contents are inlined back into the MDL before sending to Vault.
 
-Generates a VPK, uploads it to Vault, and triggers validation.
+Supported extraction types:
 
-```bash
-vdx package
+| Extension | Triggered by |
+|---|---|
+| `.xml` | Attribute metadata type `XMLString` |
+| `.json` | Attribute metadata type `JSONString`, or attributes `conditions`, `trigger_date` |
+| `.inc` | Attributes `email_body`, `notification`, `subject`, `help_content` |
+| `.as` | Value contains `<ActionScript>…</ActionScript>` |
+| `.js` | Attribute `validator_code` |
+
+### INCLUDES — extracted subcomponents
+
+Subcomponents are extracted into their own subdirectory. A placeholder is left in the parent `.mdl`:
+
+```mdl
+RECREATE Object my_object__c (
+   label('My Object'),
+   <INCLUDES Field/name__v/name__v.mdl>,
+   <INCLUDES Field/label__v/label__v.mdl>
+)
 ```
 
-### `vdx clean-cache`
+The path is `<SubType>/<sub_name>/<sub_name>.mdl` relative to the parent component directory. On push, the placeholder is replaced with the actual subcomponent content assembled from the subdirectory.
 
-Removes the local session and state files (`.vdx_config`, `.vdx_state.json`).
+For Java SDK references within MDL attributes:
 
-```bash
-vdx clean-cache
+```mdl
+class(<INCLUDES ../../../javasdk/com/veeva/vault/custom/triggers/MyTrigger.java>)
 ```
 
-### `vdx clean-files`
+Special characters or spaces in paths can be escaped with a backslash.
 
-Deletes all pulled components and source code directories. Also runs `clean-cache`. By default, this command **excludes** the `translations/` folder to prevent accidental deletion of localized strings.
+---
 
-```bash
-vdx clean-files
-# Also delete your translations
-vdx clean-files --include-translations
-```
+## State Tracking
 
-## **🔒 Security**
+`.vdx_state.json` stores MD5 checksums for every managed file. On pull, files are only written if the remote content differs from the stored checksum. On push, only files with changed checksums are deployed. Files deleted locally trigger a `DROP` in Vault on the next push.
 
-vdx includes the custom header `X-VaultAPI-ClientID: veeva-vault-vdx-client`. Ensure your Vault Administrator has allowed this Client ID in _Admin > Settings > General Settings_ if Client ID Filtering is enabled.
+The state is automatically invalidated when the vdx version changes, forcing a clean pull.
 
-## **🧠 Vault Data Model & File Structure Reference**
+---
 
-This section is designed to provide context for AI coding agents or developers analyzing the output of `vdx`. It outlines how Veeva Vault components are represented locally, their structure, and how they map to Vault APIs.
+## Vault API Notes
 
-### 1. File Structure Overview
-
-When a Vault is pulled using `vdx pull`, the workspace is populated with specific directory structures based on the component types. 
-
-- **`components/`**: Stores Vault `metadata` components.
-  - Organized by component type (e.g., `components/Object/`, `components/Docfield/`).
-    - **`metadata.json`**: Type-level metadata definition in the type folder (e.g., `components/Object/metadata.json`).
-  - There are 2 options for storing the components `Simple` or `Advanced`:
-  - **SIMPLE**
-    -  **`.mdl` files**: The component configuration (e.g., `components/Object/my_object__c/my_object__c.mdl`)
-  - **ADVANCED**
-    - Within each type, organized by component name (e.g., `components/Object/my_object__c/`, `components/Docfield/name__v/`).
-      - **`.mdl` files**: The component configuration (e.g., `components/Object/my_object__c/my_object__c.mdl`). No subcomponent definitions or references to subcomponents are included here.
-      - **`.d` files**: Bidirectional dependency graphs for the component (e.g., `components/Object/my_object__c/my_object__c.d`). Includes references to other components, its own subcomponents, subcomponents in other components, and configuration data records.
-      - **`.xml`|`.json`|`.inc`|`.as` files**: Extracted from the raw MDL into the appropriate extension for easier viewing. Stored by attribute name (e.g., `markup.xml`). References to these files are stored in the `.mdl` file in place of the attribute value and are prefixed with an `@` symbol (e.g., `page_markup(@markup.xml),`).
-      - **Subcomponents**: Organized by subcomponent type and subcomponent name (e.g., `components/Object/my_object__c/Field/name__v/`).
-        - **`.mdl` files**: The subcomponent core configuration (e.g., `components/Object/my_object__c/Field/name__v/name__v.mdl`).
-        - **`.d` files**: Bidirectional dependency graphs for the subcomponent (e.g., `components/Object/my_object__c/Field/name__v/name__v.d`). Includes references to other components and subcomponents, its own parent component, sibling subcomponents, and configuration data records.
-        - **`.xml`|`.json`|`.inc`|`.as` files**: Extracted from the raw MDL of the subcomponent with the appropriate extension. References to these files are stored in the `.mdl` file in place of the attribute value, prefixed with `@` (e.g., `help_content(@help_content.inc),`).- **`javasdk/`**: Stores Vault `code` components (Java SDK).
-  - Files are downloaded as raw `.java` files.
-  - Organized into standard Java package directory structures parsed directly from the source code (e.g., `javasdk/com/veeva/vault/custom/triggers/MyTrigger.java`).
-- **`custom_pages/`**: Stores UI code distributions.
-  - Organized by distribution name (e.g., `custom_pages/hello_world__c/index.html`).
-  - Files are downloaded by extracting Vault zip distributions from the `/uicode/distributions/{name}/code` endpoint.
-- **`translations/`**: Stores bulk message translations.
-  - Organized by language code and message type (e.g., `translations/en/field_labels__sys.csv`).
-  - Extracted using Vault's asynchronous translation export jobs.
-
-### 2. Metadata Definition Language (MDL)
-
-Vault configuration is defined using MDL (Metadata Definition Language), Veeva's proprietary domain-specific language.
-
-- **Syntax**: Resembles a combination of SQL DDL and JSON/Object notation.
-- **Retrieval**: `vdx` uses the specialized VQL query endpoint (`/api/{version}/query/components`) to extract the exact MDL string natively generated by Vault.
-  - Example Query: `SELECT component_name__v, component_type__v, mdl_definition__v FROM vault_component__v WHERE component_type__v CONTAINS ('Object', 'Docfield')`
-- **Execution**: When deploying changes, `vdx push` executes the `.mdl` scripts against Vault's `/api/{version}/mdl/execute` endpoint. It parses commands like `RECREATE`, `ALTER`, or `DROP`.
-
-### 3. Component Dependencies (`.d` files)
-
-Vault tracks deep relationships between components internally. `vdx` extracts these relationships and surfaces them as `.d` (dependency) text files alongside the `.mdl` files.
-
-- **Source**: Queried from the `vault_component_relationship__sys` object.
-- **Format**: Plain text, bidirectional dependency graph.
-  ```text
-  depends_on: Object.user_role_setup__v [blocking=true]
-  used_by: Matchingrule.editor_project__c [blocking=false] [target_sub=Field.related_project__c]
-  ```
-- **Meaning**:
-  - `depends_on`: Outbound requirement. The current component requires this target component to exist.
-  - `used_by`: Inbound usage. Another component requires this component.
-  - `[blocking=true]`: A critical directive indicating that the dependent component **cannot** be created or deployed unless the target dependency is satisfied. It also dictates cascading delete behaviors.
-  - `[target_sub=...]`: Indicates the dependency is tied to a specific sub-component (like a specific Field within an Object), not just the top-level component.
-
-### 4. Incremental State Tracking
-
-To optimize API usage and deployment speed, `vdx` tracks the state of the workspace.
-
-- **`.vdx_state.json`**: A local manifest storing MD5 checksums of every file pulled from or pushed to Vault.
-- **Logic**: During a `push`, `vdx` hashes local files and compares them against the state file. Only modified or new files are deployed. If a file exists in the state but is deleted locally, `vdx` attempts to execute a `DROP` command for that component in Vault.
-
-### 5. API Paradigms & Constraints
-
-- **Always HTTP 200**: The Vault API often returns HTTP `200 OK` even when an operation fails. `vdx` (and any interacting agent) must inspect the `responseStatus` field within the JSON body (expecting `"SUCCESS"`, `"FAILURE"`, or `"WARNING"`).
-- **Pagination**: Queries returning many records use `responseDetails.next_page` URLs, which `vdx` automatically traverses.
-- **Asynchronous Jobs**: Heavy operations (like packaging and translation extraction) return a `jobId`. `vdx` polls the `/services/jobs/{job_id}` endpoint until the `status` indicates `SUCCESS` before proceeding.
+- **Always inspect `responseStatus`** — the Vault API returns HTTP 200 even on failure. Check the JSON body for `"SUCCESS"`, `"FAILURE"`, or `"WARNING"`.
+- **Pagination** — large result sets use `responseDetails.next_page`; vdx traverses these automatically.
+- **Async jobs** — packaging and translation export return a `jobId` and must be polled at `/api/{version}/services/jobs/{jobId}`.
+- **Client ID** — vdx sends `X-VaultAPI-ClientID: veeva-vault-vdx-client`. Enable this in _Vault Admin → Settings → General Settings_ if Client ID Filtering is active.
